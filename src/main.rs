@@ -1,6 +1,3 @@
-fn main() {
-    println!("Hello, world!");
-}
 mod lexer;
 mod parser;
 mod compiler;
