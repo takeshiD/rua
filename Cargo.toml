@@ -1,13 +1,10 @@
 [package]
-name = "rust-lua"
+name = "rua"
 version = "0.1.0"
 edition = "2021"
-authors = ["Your Name <your.email@example.com>"]
+authors = ["tkcd <goriponikeike55@gmail.com>"]
 description = "A Lua interpreter implemented in Rust"
 
 [dependencies]
-nom = "8.0.0"
+nom = "7"
 thiserror = "1.0.50"
-
-[dev-dependencies]
-# テスト用の依存関係
