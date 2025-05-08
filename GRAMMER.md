@@ -1,77 +1,70 @@
 # BNF
-[Section 9 of the Lua 5.4 ReferenceManual](https://www.lua.org/manual/5.4/manual.html#9)
+- [Lua Get Started](https://lua.org/start.html)
+- [Lua 5.1 Reference Manual](https://www.lua.org/manual/5.1/manual.html)
+
+`[ symbol ]` is optional(none or once).
+
+`{ symbol }` is repetiton(none or more).
+
 ```
-chunk ::= block
+chunk ::= {stat [`;´]} [laststat [`;´]]
 
-block ::= {stat} [retstat]
+block ::= chunk
 
-stat ::=  ‘;’ | 
-     varlist ‘=’ explist | 
+stat ::=  varlist `=´ explist | 
      functioncall | 
-     label | 
-     break | 
-     goto Name | 
      do block end | 
      while exp do block end | 
      repeat block until exp | 
      if exp then block {elseif exp then block} [else block] end | 
-     for Name ‘=’ exp ‘,’ exp [‘,’ exp] do block end | 
+     for Name `=´ exp `,´ exp [`,´ exp] do block end | 
      for namelist in explist do block end | 
      function funcname funcbody | 
      local function Name funcbody | 
-     local attnamelist [‘=’ explist] 
+     local namelist [`=´ explist] 
 
-attnamelist ::=  Name attrib {‘,’ Name attrib}
+laststat ::= return [explist] | break
 
-attrib ::= [‘<’ Name ‘>’]
+funcname ::= Name {`.´ Name} [`:´ Name]
 
-retstat ::= return [explist] [‘;’]
+varlist ::= var {`,´ var}
 
-label ::= ‘::’ Name ‘::’
+var ::=  Name | prefixexp `[´ exp `]´ | prefixexp `.´ Name 
 
-funcname ::= Name {‘.’ Name} [‘:’ Name]
+namelist ::= Name {`,´ Name}
 
-varlist ::= var {‘,’ var}
+explist ::= {exp `,´} exp
 
-var ::=  Name | prefixexp ‘[’ exp ‘]’ | prefixexp ‘.’ Name 
-
-namelist ::= Name {‘,’ Name}
-
-explist ::= exp {‘,’ exp}
-
-exp ::=  nil | false | true | Numeral | LiteralString | ‘...’ | functiondef | 
+exp ::=  nil | false | true | Number | String | `...´ | function | 
      prefixexp | tableconstructor | exp binop exp | unop exp 
 
-prefixexp ::= var | functioncall | ‘(’ exp ‘)’
+exp = term { "+" term | "-" term }*
+term = primary { "*" primary | "/" primary }
+primary = nil | false | true | Number | String | `...´ | function | tableconstructor | prefixexp | unop exp
 
-functioncall ::=  prefixexp args | prefixexp ‘:’ Name args 
+prefixexp ::= var | functioncall | `(´ exp `)´
 
-args ::=  ‘(’ [explist] ‘)’ | tableconstructor | LiteralString 
+functioncall ::=  prefixexp args | prefixexp `:´ Name args 
 
-functiondef ::= function funcbody
+args ::=  `(´ [explist] `)´ | tableconstructor | String 
 
-funcbody ::= ‘(’ [parlist] ‘)’ block end
+function ::= function funcbody
 
-parlist ::= namelist [‘,’ ‘...’] | ‘...’
+funcbody ::= `(´ [parlist] `)´ block end
 
-tableconstructor ::= ‘{’ [fieldlist] ‘}’
+parlist ::= namelist [`,´ `...´] | `...´
+
+tableconstructor ::= `{´ [fieldlist] `}´
 
 fieldlist ::= field {fieldsep field} [fieldsep]
 
-field ::= ‘[’ exp ‘]’ ‘=’ exp | Name ‘=’ exp | exp
+field ::= `[´ exp `]´ `=´ exp | Name `=´ exp | exp
 
-fieldsep ::= ‘,’ | ‘;’
+fieldsep ::= `,´ | `;´
 
-binop ::=  ‘+’ | ‘-’ | ‘*’ | ‘/’ | ‘//’ | ‘^’ | ‘%’ | 
-     ‘&’ | ‘~’ | ‘|’ | ‘>>’ | ‘<<’ | ‘..’ | 
-     ‘<’ | ‘<=’ | ‘>’ | ‘>=’ | ‘==’ | ‘~=’ | 
+binop ::= `+´ | `-´ | `*´ | `/´ | `^´ | `%´ | `..´ | 
+     `<´ | `<=´ | `>´ | `>=´ | `==´ | `~=´ | 
      and | or
 
-unop ::= ‘-’ | not | ‘#’ | ‘~’
-```
+unop ::= `-´ | not | `#´```
 
-
-# References
-
-- [Lua Get Started](https://lua.org/start.html)
-- [Lua 5.1 Reference Manual](https://www.lua.org/manual/5.1/manual.html)
