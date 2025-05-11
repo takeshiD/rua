@@ -2,12 +2,12 @@ use nom::{
     branch::alt,
     bytes::complete::tag,
     character::complete::{alpha1, alphanumeric1, char, digit1, multispace0, multispace1},
-    combinator::{map, opt, recognize},
-    error::ParseError,
+    combinator::{map, opt, peek, recognize},
+    error::{Error, ErrorKind, ParseError},
     multi::{fold_many0, many0, separated_list0},
     number::complete::recognize_float,
-    sequence::{delimited, pair, preceded, terminated, tuple},
-    Finish, IResult, Parser,
+    sequence::{delimited, pair, preceded, terminated},
+    AsChar, Finish, IResult, Input, Parser,
 };
 
 type LuaNumber = f64;
@@ -37,28 +37,87 @@ enum UnaryOp {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-enum Exp {
+enum Exp<'a> {
     Value(ExpKind),
-    BinaryOp(BinaryOp, Box<Exp>, Box<Exp>),
-    UnaryOp(UnaryOp, Box<Exp>),
+    BinaryOp(BinaryOp, Box<Exp<'a>>, Box<Exp<'a>>),
+    UnaryOp(UnaryOp, Box<Exp<'a>>),
+    Identifier(&'a str),
 }
 
-fn space_delimited<'src, O, E>(
-    f: impl Parser<&'src str, O, E>,
-) -> impl FnMut(&'src str) -> IResult<&'src str, O, E>
+/// remove spaces parser
+/// # Examples
+///
+/// ```
+/// assert_eq!(parens_delimited(digit1).parse(" 12   "), Ok("", "12"))
+/// ```
+fn spaces_delimited<I, O, E: ParseError<I>, F>(f: F) -> impl Parser<I, Output = O, Error = E>
 where
-    E: ParseError<&'src str>,
+    I: Input,
+    <I as Input>::Item: AsChar,
+    F: Parser<I, Output = O, Error = E>,
 {
     delimited(multispace0, f, multispace0)
 }
 
+/// encloses parens(`(` and `)`) parser
+/// # Examples
+///
+/// ```
+/// assert_eq!(parens_delimited(digit1).parse("( 12)"), Ok("", "12"))
+/// assert_eq!(parens_delimited(digit1).parse(" 12)"), Err())
+/// ```
+fn parens_delimited<I, O, E: ParseError<I>, F>(f: F) -> impl Parser<I, Output = O, Error = E>
+where
+    I: Input,
+    <I as Input>::Item: AsChar,
+    F: Parser<I, Output = O, Error = E>,
+{
+    delimited(spaces_delimited(char('(')), f, spaces_delimited(char(')')))
+}
+
+/// encloses square brackets(`[` and `]`) parser
+/// # Examples
+///
+/// ```
+/// assert_eq!(parens_delimited(digit1).parse("[ 12]"), Ok("", "12"))
+/// assert_eq!(parens_delimited(digit1).parse(" 12]"), Err())
+/// ```
+fn square_brackets_delimited<I, O, E: ParseError<I>, F>(
+    f: F,
+) -> impl Parser<I, Output = O, Error = E>
+where
+    I: Input,
+    <I as Input>::Item: AsChar,
+    F: Parser<I, Output = O, Error = E>,
+{
+    delimited(spaces_delimited(char('[')), f, spaces_delimited(char(']')))
+}
+
+/// encloses curly brackets(`{` and `}`) parser
+/// # Examples
+///
+/// ```
+/// assert_eq!(parens_delimited(digit1).parse("{ 12}"), Ok("", "12"))
+/// assert_eq!(parens_delimited(digit1).parse(" 12}"), Err())
+/// ```
+fn curly_brackets_delimited<I, O, E: ParseError<I>, F>(
+    f: F,
+) -> impl Parser<I, Output = O, Error = E>
+where
+    I: Input,
+    <I as Input>::Item: AsChar,
+    F: Parser<I, Output = O, Error = E>,
+{
+    delimited(spaces_delimited(char('{')), f, spaces_delimited(char('}')))
+}
+
 fn nil(i: &str) -> IResult<&str, ExpKind> {
-    let (i, _) = space_delimited(tag("nil"))(i)?;
+    let (i, _) = spaces_delimited(tag("nil")).parse(i)?;
     Ok((i, ExpKind::NiL))
 }
 
 fn bool(i: &str) -> IResult<&str, ExpKind> {
-    let (i, val) = space_delimited(alt((tag("true"), tag("false"))))(i)?;
+    let (i, val) = spaces_delimited(alt((tag("true"), tag("false")))).parse(i)?;
     match val {
         "true" => Ok((i, ExpKind::True)),
         "false" => Ok((i, ExpKind::False)),
@@ -67,24 +126,65 @@ fn bool(i: &str) -> IResult<&str, ExpKind> {
 }
 
 fn float(i: &str) -> IResult<&str, ExpKind> {
-    let (i, val) = space_delimited(alt((recognize_float, preceded(tag("-"), recognize_float))))(i)?;
+    let (i, val) =
+        spaces_delimited(alt((recognize_float, preceded(tag("-"), recognize_float)))).parse(i)?;
     let val = val.parse::<LuaNumber>().unwrap();
     Ok((i, ExpKind::Float(val)))
 }
 
 fn integer(i: &str) -> IResult<&str, ExpKind> {
-    space_delimited(alt((
+    spaces_delimited(alt((
         map(digit1, |s: &str| {
             ExpKind::Integer(s.parse::<LuaNumber>().unwrap())
         }),
         map(preceded(tag("-"), digit1), |s: &str| {
             ExpKind::Integer(-s.parse::<LuaNumber>().unwrap())
         }),
-    )))(i)
+    )))
+    .parse(i)
 }
 
-fn expr_unary_op(i: &str) -> IResult<&str, Exp> {
-    let (i, unop) = alt((tag("-"), tag("not "), tag("#")))(i)?;
+fn value(i: &str) -> IResult<&str, Exp> {
+    let (i, val) = alt((nil, bool, integer, float)).parse(i)?;
+    Ok((i, Exp::Value(val)))
+}
+
+fn is_reserved(i: &str) -> bool {
+    let reserved_words = [
+        "and", "break", "do", "else", "elseif", "end", "false", "for", "function", "if", "in",
+        "local", "nil", "not", "or", "repeat", "return", "then", "true", "until", "while",
+    ];
+    reserved_words.contains(&i)
+}
+
+/// Lua Name(identifier) parser
+fn identifier(i: &str) -> IResult<&str, Exp> {
+    let (i, id) = recognize(pair(
+        alt((alpha1, tag("_"))),
+        many0(alt((alphanumeric1, tag("_")))),
+    ))
+    .parse(i)?;
+    if is_reserved(id) {
+        return Err(nom::Err::Error(Error::new(id, ErrorKind::Tag)));
+    }
+    Ok((i, Exp::Identifier(id)))
+}
+
+/// Lua variable parser
+/// var ::= Name | prefixexp `[´ exp `]´ | prefixexp `.´ Name
+/// # Todos
+/// - implement: prefixexp `[` exp `]`
+/// - implement: prefixexp `.` Name
+fn variable(i: &str) -> IResult<&str, Exp> {
+    alt((identifier,)).parse(i)
+}
+
+fn prefix_expr(i: &str) -> IResult<&str, Exp> {
+    alt((variable, parens_delimited(expr))).parse(i)
+}
+
+fn unary_expr(i: &str) -> IResult<&str, Exp> {
+    let (i, unop) = alt((tag("-"), tag("not "), tag("#"))).parse(i)?;
     let (i, e) = expr(i)?;
     match unop {
         "-" => Ok((i, Exp::UnaryOp(UnaryOp::Minus, Box::new(e)))),
@@ -95,14 +195,14 @@ fn expr_unary_op(i: &str) -> IResult<&str, Exp> {
 }
 
 fn primary(i: &str) -> IResult<&str, Exp> {
-    let (i, val) = alt((nil, bool, integer, float))(i)?;
-    Ok((i, Exp::Value(val)))
+    let (i, e) = alt((value, unary_expr, prefix_expr)).parse(i)?;
+    Ok((i, e))
 }
 
 fn term(i: &str) -> IResult<&str, Exp> {
     let (i, init) = primary(i)?;
     fold_many0(
-        pair(space_delimited(alt((char('*'), char('/')))), primary),
+        pair(spaces_delimited(alt((char('*'), char('/')))), primary),
         move || init.clone(),
         |acc, (op, val): (char, Exp)| match op {
             '*' => Exp::BinaryOp(BinaryOp::Mul, Box::new(acc), Box::new(val)),
@@ -111,13 +211,14 @@ fn term(i: &str) -> IResult<&str, Exp> {
                 panic!("Binary Operator must be '*' '/'.")
             }
         },
-    )(i)
+    )
+    .parse(i)
 }
 
 fn expr(i: &str) -> IResult<&str, Exp> {
     let (i, init) = term(i)?;
     fold_many0(
-        pair(space_delimited(alt((char('+'), char('-')))), term),
+        pair(spaces_delimited(alt((char('+'), char('-')))), term),
         move || init.clone(),
         |acc, (op, val): (char, Exp)| match op {
             '+' => Exp::BinaryOp(BinaryOp::Add, Box::new(acc), Box::new(val)),
@@ -126,7 +227,8 @@ fn expr(i: &str) -> IResult<&str, Exp> {
                 panic!("Additive expression should have '+' or '-' operator")
             }
         },
-    )(i)
+    )
+    .parse(i)
 }
 
 #[cfg(test)]
@@ -160,6 +262,36 @@ mod tests {
         assert_eq!(integer("0"), Ok(("", ExpKind::Integer(0.0))));
     }
     #[test]
+    fn test_identifier() {
+        assert_eq!(
+            identifier("hello_name"),
+            Ok(("", Exp::Identifier("hello_name")))
+        );
+        assert_eq!(identifier("_hello"), Ok(("", Exp::Identifier("_hello"))));
+        assert_eq!(
+            identifier("and"),
+            Err(nom::Err::Error(Error::new("and", ErrorKind::Tag)))
+        );
+        assert_eq!(
+            identifier("or"),
+            Err(nom::Err::Error(Error::new("or", ErrorKind::Tag)))
+        );
+    }
+    #[test]
+    fn test_primary() {
+        assert_eq!(primary("nil"), Ok(("", Exp::Value(ExpKind::NiL))));
+        assert_eq!(primary("(nil)"), Ok(("", Exp::Value(ExpKind::NiL))));
+        assert_eq!(primary(" ( nil ) "), Ok(("", Exp::Value(ExpKind::NiL))));
+        assert_eq!(primary(" ( nil ) "), Ok(("", Exp::Value(ExpKind::NiL))));
+        assert_eq!(
+            primary("not true"),
+            Ok((
+                "",
+                Exp::UnaryOp(UnaryOp::Not, Box::new(Exp::Value(ExpKind::True)))
+            ))
+        );
+    }
+    #[test]
     fn test_expr() {
         assert_eq!(
             expr("1 + 1"),
@@ -189,16 +321,57 @@ mod tests {
                 "",
                 Exp::BinaryOp(
                     BinaryOp::Add,
-                    Box::new(
-                        Exp::BinaryOp(
-                            BinaryOp::Sub, 
-                            Box::new(Exp::Value(ExpKind::Integer(1.0))), 
-                            Box::new(Exp::Value(ExpKind::Integer(2.0)))
-                        )
-                    ),
-                    Box::new(
-                        Exp::Value(ExpKind::Integer(3.0))
-                    ),
+                    Box::new(Exp::BinaryOp(
+                        BinaryOp::Sub,
+                        Box::new(Exp::Value(ExpKind::Integer(1.0))),
+                        Box::new(Exp::Value(ExpKind::Integer(2.0)))
+                    )),
+                    Box::new(Exp::Value(ExpKind::Integer(3.0))),
+                )
+            ))
+        );
+        assert_eq!(
+            expr("(1 - 2) + 3"),
+            Ok((
+                "",
+                Exp::BinaryOp(
+                    BinaryOp::Add,
+                    Box::new(Exp::BinaryOp(
+                        BinaryOp::Sub,
+                        Box::new(Exp::Value(ExpKind::Integer(1.0))),
+                        Box::new(Exp::Value(ExpKind::Integer(2.0)))
+                    )),
+                    Box::new(Exp::Value(ExpKind::Integer(3.0))),
+                )
+            ))
+        );
+        assert_eq!(
+            expr("(1 - 2) * 3"),
+            Ok((
+                "",
+                Exp::BinaryOp(
+                    BinaryOp::Mul,
+                    Box::new(Exp::BinaryOp(
+                        BinaryOp::Sub,
+                        Box::new(Exp::Value(ExpKind::Integer(1.0))),
+                        Box::new(Exp::Value(ExpKind::Integer(2.0)))
+                    )),
+                    Box::new(Exp::Value(ExpKind::Integer(3.0))),
+                )
+            ))
+        );
+        assert_eq!(
+            expr("1 - 2 * 3"),
+            Ok((
+                "",
+                Exp::BinaryOp(
+                    BinaryOp::Sub,
+                    Box::new(Exp::Value(ExpKind::Integer(1.0))),
+                    Box::new(Exp::BinaryOp(
+                        BinaryOp::Mul,
+                        Box::new(Exp::Value(ExpKind::Integer(2.0))),
+                        Box::new(Exp::Value(ExpKind::Integer(3.0)))
+                    )),
                 )
             ))
         );

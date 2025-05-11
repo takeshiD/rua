@@ -1,5 +1,4 @@
 mod parser;
 
 fn main() {
-
 }
