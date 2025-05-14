@@ -290,6 +290,19 @@ mod tests {
                 Exp::UnaryOp(UnaryOp::Not, Box::new(Exp::Value(ExpKind::True)))
             ))
         );
+        assert_eq!(
+            primary("not not true"),
+            Ok((
+                "",
+                Exp::UnaryOp(
+                    UnaryOp::Not,
+                    Box::new(Exp::UnaryOp(
+                        UnaryOp::Not,
+                        Box::new(Exp::Value(ExpKind::True))
+                    ))
+                )
+            ))
+        );
     }
     #[test]
     fn test_expr() {
