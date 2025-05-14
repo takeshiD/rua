@@ -1,9 +1,11 @@
-# Lua Github
+# References
+
 [Lua - Github](https://github.com/lua/lua)
+[Lua - DeepWiki](https://deepwiki.com/lua/lua)
 
 
-# Lua処理系プロジェクト全体の詳細整理レポート（初心者向け解説） 
-> :warining: LLM generated this section
+# Lua処理系プロジェクト全体の詳細整理レポート
+> :warning: LLM generated this section
 
 ## 1. このプロジェクトは何か？
 
@@ -136,6 +138,18 @@ f(10)
 # コードリーディング
 
 > :warning: Human create this section.
+
+## フロントエンド
+
+```mermaid
+sequenceDiagram
+    Parser -->> Lexer: luaX_setinput()
+```
+
 ## 構造体
+
+### 字句解析のキー構造体
+`LexState`
+
 
 
