@@ -143,7 +143,12 @@ f(10)
 
 ```mermaid
 sequenceDiagram
-    Parser -->> Lexer: luaX_setinput()
+    participant Parser as Parser(lparser.c)
+    participant Lexer as Lexer(llex.c)
+    participant InputStream as InputStream(ZIO)
+    Parser ->> Lexer: luaX_setinput()
+    Parser ->> Lexer: luaX_next()
+    Lexer ->> ZIO: luaX_next()
 ```
 
 ## 構造体
