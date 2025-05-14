@@ -147,7 +147,7 @@ sequenceDiagram
     participant Lexer as Lexer(llex.c)
     participant InputStream as InputStream(ZIO)
     Parser ->> Lexer: luaX_setinput()
-    Note over of Lexer: Initialize lexer state
+    Note over Lexer: Initialize lexer state
     Parser ->> Lexer: luaX_next()
     Lexer ->> InputStream: luaX_next()
 ```
