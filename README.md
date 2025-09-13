@@ -1,27 +1,60 @@
 # rua
-rua is a lua implementation by Rust.
 
-- provide Lua API for Rust
-- provide Lua API for C/C++
-- provide Lua Interpreter `rua`
-    - Pretty REPL like IPyhton
-        - pretty display
-        - magic commands  
-        ```sh
-        In[0]: %ls
-        Out[0]: .gitignore README.md function.lua ...
-        In[1]: %who
-        Out[1]: 
-        ```
-    - Easy switch lua version(default latest lua : currently lua54)  
-        > Specified Lua51  `rua --lua51 file.lua`  
-        > Specified LuaJIT `rua --luajit file.lua`  
-- provide Lua compiler `ruac`
-    - Easy switch lua version(default latest lua : currently lua54)  
-        > Specified Lua51  `ruac --lua51 file.lua -o file.out`  
-        > Specified LuaJIT `ruac --luajit file.lua -o file1.out`  
-    - pretty display undump  
-        > `ruac -l(--list)` / `ruac -ll(--full-list)`  
+**rua** is a Lua implementation written in Rust.  
+It aims to provide a safe, modern, and flexible Lua runtime and tooling, without depending on the original C libraries.
+
+## Features
+
+- **Lua API for Rust**
+- **Lua API for C/C++**
+- **Lua Interpreter (`rua`)** with REPL and version switching
+- **Lua Compiler (`ruac`)** with bytecode disassembly and version switching
+
+# Usage
+
+## Lua Interpreter (`rua`)
+
+The `rua` command provides a Lua interpreter with a rich REPL experience and version switching.
+
+### REPL
+```sh
+$ rua
+In[0]: print("hello rua")
+Out[0]: hello rua
+```
+
+#### Magic command
+##### `ls` : list files in current directory
+```
+In[0]: %ls
+Out[0]: .gitignore README.md function.lua ...
+```
+
+##### `who`: show current variables
+```
+In[1]: %who
+Out[1]: a b c my_function
+```
+
+
+### Run a script
+```sh
+$ rua script.lua
+```
+
+### Switch Lua version
+#### Run with Lua 5.1
+```
+rua --lua51 script.lua
+```
+
+#### Run with LuaJIT
+```
+rua --luajit script.lua
+```
+
+
+
 
 # Comparison mlua
 
@@ -39,27 +72,29 @@ not yet measured
 ## Version and Features
 | Lua version and dialect | `mlua`    | `rua`   |
 | ----------------------- | --------  | ------- |
-| `lua51`                 | Supported |         |
-| `lua52`                 | Supported |         |
-| `lua53`                 | Supported |         |
-| `lua54`                 | Supported |         |
-| `luajit`                | Supported |         |
-| `luajit52`              | Supported |         |
-| `luau`                  | Supported |         |
+| `lua51`                 | Supported | Planned |
+| `lua52`                 | Supported | Planned |
+| `lua53`                 | Supported | Planned |
+| `lua54`                 | Supported | Planned |
+| `luajit`                | Supported | Planned |
+| `luajit52`              | Supported | Planned |
+| `luau`                  | Supported | Planned |
+
 
 
 | Feature for emebedding in Rust | `mlua`    | `rua`   |
 | ------------------------------ | --------  | ------- |
-| `async/await`                  | Supported |         |
-| `send`                         | Supported |         |
-| `error-send`                   | Supported |         |
-| `serde`                        | Supported |         |
-| `macros`                       | Supported |         |
-| `anyhow`                       | Supported |         |
-| `userdata-wrappers`            | Supported |         |
+| `async/await`                  | Supported | Planned |
+| `send`                         | Supported | Planned |
+| `error-send`                   | Supported | Planned |
+| `serde`                        | Supported | Planned |
+| `macros`                       | Supported | Planned |
+| `anyhow`                       | Supported | Planned |
+| `userdata-wrappers`            | Supported | Planned |
 
 
 
-# Similar project
+# Inspired
 - [mlua](https://github.com/mlua-rs/mlua)
 - [rlua](https://github.com/mlua-rs/rlua.git)
+
