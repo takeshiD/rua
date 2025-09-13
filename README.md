@@ -4,15 +4,15 @@ rua is a lua implementation by Rust.
 - provide Lua API for Rust
 - provide Lua API for C/C++
 - provide Lua Interpreter `rua`
-    - Easy switch lua version(default latest lua : currently lua54)
-        > Specified Lua51  `rua --lua51 file.lua -o file.out`
-        > Specified LuaJIT `rua --luajit file.lua -o file.out`
+    - Easy switch lua version(default latest lua : currently lua54)  
+        > Specified Lua51  `rua --lua51 file.lua -o file.out`  
+        > Specified LuaJIT `rua --luajit file.lua -o file.out`  
 - provide Lua compiler `ruac`
-    - Easy switch lua version(default latest lua : currently lua54)
-        > Specified Lua51  `ruac --lua51 file.lua -o file.out`
-        > Specified LuaJIT `ruac --luajit file.lua -o file1.out`
-    - pretty display undump
-        > `ruac -l(--list)` / `ruac -ll(--full-list)`
+    - Easy switch lua version(default latest lua : currently lua54)  
+        > Specified Lua51  `ruac --lua51 file.lua -o file.out`  
+        > Specified LuaJIT `ruac --luajit file.lua -o file1.out`  
+    - pretty display undump  
+        > `ruac -l(--list)` / `ruac -ll(--full-list)`  
 
 # Comparison mlua
 
