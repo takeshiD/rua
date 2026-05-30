@@ -644,26 +644,36 @@ impl FuncState {
     }
 
     /// 本家 `luaK_exp2RK`: 値をレジスタか定数（RK）として返す。
+    ///
+    /// 定数インデックスが MAXINDEXRK (= BITRK - 1 = 255) を超える場合は RK として
+    /// 埋め込めない（B/C フィールドは 9bit だが最上位ビットが BITRK フラグのため
+    /// 実質 8bit = 0..=255 しか定数インデックスに使えない）。本家 `luaK_exp2RK` と
+    /// 同様、超過時は exp2anyreg でレジスタへ spill してレジスタ番号を返す。
     fn exp2rk(&mut self, e: &mut ExpDesc, line: u32) -> LuaResult<u32> {
         self.exp2val(e, line)?;
         match e.k {
             EK::Nil | EK::True | EK::False | EK::KNum(_) => {
-                if (self.proto.constants.len() as u32) <= MAXINDEXRK {
-                    let idx = match e.k {
-                        EK::Nil => self.nil_k(),
-                        EK::True => self.bool_k(true),
-                        EK::False => self.bool_k(false),
-                        EK::KNum(n) => self.number_k(n),
-                        _ => unreachable!(),
-                    };
+                // 重複排除後の定数インデックスを先に求め、RK 範囲内かを確認する。
+                let idx = match e.k {
+                    EK::Nil => self.nil_k(),
+                    EK::True => self.bool_k(true),
+                    EK::False => self.bool_k(false),
+                    EK::KNum(n) => self.number_k(n),
+                    _ => unreachable!(),
+                };
+                if idx <= MAXINDEXRK {
                     e.k = EK::K(idx);
                     return Ok(rk_as_k(idx));
                 }
+                // インデックスが RK 範囲外 → 定数は既に登録済みなので
+                // EK::K として LOADK 経由でレジスタへ落とす。
+                e.k = EK::K(idx);
             }
             EK::K(idx) => {
                 if idx <= MAXINDEXRK {
                     return Ok(rk_as_k(idx));
                 }
+                // idx > MAXINDEXRK: LOADK でレジスタへ spill させる（fall-through）。
             }
             _ => {}
         }
@@ -1834,7 +1844,13 @@ impl<'h> CodeGen<'h> {
                 Field::Named(name, e) => {
                     nh += 1;
                     let reg_save = self.cur().freereg;
-                    let key_rk = rk_as_k(self.string_k(name.as_bytes()));
+                    // キーは文字列定数。定数インデックスが MAXINDEXRK を超える場合は
+                    // rk_as_k を直接使えない（B/C は 9bit, BITRK = 256 がフラグ bit
+                    // のため定数インデックスは 0..=255 のみ）。本家 luaK_exp2RK と
+                    // 同様に exp2rk 経由で spill させる。
+                    let key_idx = self.string_k(name.as_bytes());
+                    let mut key_e = ExpDesc::new(EK::K(key_idx));
+                    let key_rk = self.cur().exp2rk(&mut key_e, line)?;
                     let mut val = self.expr_node(e)?;
                     let val_rk = self.cur().exp2rk(&mut val, line)?;
                     self.cur()

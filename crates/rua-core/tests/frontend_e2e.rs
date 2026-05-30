@@ -152,3 +152,86 @@ fn varargs_passthrough() {
     );
     assert_eq!(num(&r[0]), 10.0);
 }
+
+// ============================================================================
+// 回帰テスト: RK オーバーフロー (big.lua クラッシュ #issue)
+// ハッシュフィールドが 256 個以上のテーブルコンストラクタで、定数インデックスが
+// MAXINDEXRK(=255) を超えた場合に codegen がパニックしないこと確認。
+// 根本原因: Field::Named のキーが exp2rk を経由せず rk_as_k を直接呼んでいたため
+// MAXARG_C(=511) の debug_assert に B/C フィールドの BITRK|idx が引っかかっていた。
+// 修正: キー/値ともに exp2rk を経由させ、インデックス > MAXINDEXRK なら
+// LOADK+レジスタへ spill させる（本家 luaK_exp2RK の挙動と同様）。
+// ============================================================================
+
+/// 257 個のハッシュフィールドを持つコンストラクタがパニックせず正しく値を格納する。
+/// 本家 big.lua クラッシュの最小再現ケース。
+#[test]
+fn hash_table_constructor_over_256_fields() {
+    let mut state = LuaState::new();
+    // 257 個のフィールドを持つテーブルを構築し、先頭・末尾・中間の値を確認する。
+    // フィールド名 a1..a257 と値 1..257 がすべて別の定数なので、
+    // 定数テーブルは 514 エントリ以上になり MAXINDEXRK(255) をはるかに超える。
+    let src = {
+        let fields: String = (1u32..=257)
+            .map(|i| format!("a{}={}", i, i))
+            .collect::<Vec<_>>()
+            .join(",");
+        format!("local t = {{{}}} return t.a1, t.a256, t.a257", fields)
+    };
+    let r = run_src(&mut state, &src);
+    assert_eq!(num(&r[0]), 1.0);
+    assert_eq!(num(&r[1]), 256.0);
+    assert_eq!(num(&r[2]), 257.0);
+}
+
+/// 境界値: ちょうど 256 個のハッシュフィールド（最後の定数インデックスが
+/// MAXINDEXRK = 255 に到達するケース）。
+#[test]
+fn hash_table_constructor_exactly_256_fields() {
+    let mut state = LuaState::new();
+    let src = {
+        let fields: String = (1u32..=256)
+            .map(|i| format!("a{}={}", i, i))
+            .collect::<Vec<_>>()
+            .join(",");
+        format!("local t = {{{}}} return t.a1, t.a256", fields)
+    };
+    let r = run_src(&mut state, &src);
+    assert_eq!(num(&r[0]), 1.0);
+    assert_eq!(num(&r[1]), 256.0);
+}
+
+/// キーと値が両方とも異なる文字列定数の場合、定数テーブルは 2n エントリになり
+/// n > 128 で MAXINDEXRK を超える。spill が正しく機能することを確認する。
+#[test]
+fn hash_table_constructor_string_key_string_val_overflow() {
+    let mut state = LuaState::new();
+    // 143 フィールド: キー143個 + 値143個 = 286 定数 > MAXINDEXRK
+    let src = {
+        let fields: String = (1u32..=143)
+            .map(|i| format!("k{}=\"v{}\"", i, i))
+            .collect::<Vec<_>>()
+            .join(",");
+        format!("local t = {{{}}} return t.k1, t.k128, t.k143", fields)
+    };
+    let r = run_src(&mut state, &src);
+    // 戻り値は文字列なので GcRef になる。nil でないことだけ確認する。
+    assert!(!matches!(r[0], Value::Nil));
+    assert!(!matches!(r[1], Value::Nil));
+    assert!(!matches!(r[2], Value::Nil));
+}
+
+/// 大量のハッシュフィールド（500 個）でもパニックしないことを確認する。
+#[test]
+fn hash_table_constructor_500_fields_no_panic() {
+    let mut state = LuaState::new();
+    let src = {
+        let fields: String = (1u32..=500)
+            .map(|i| format!("a{}={}", i, i))
+            .collect::<Vec<_>>()
+            .join(",");
+        format!("local t = {{{}}} return t.a500", fields)
+    };
+    let r = run_src(&mut state, &src);
+    assert_eq!(num(&r[0]), 500.0);
+}
