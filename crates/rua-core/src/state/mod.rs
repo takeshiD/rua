@@ -18,9 +18,10 @@
 pub mod call;
 
 use crate::gc::Heap;
-use crate::gc::GcHandle;
+use crate::gc::{ClosureKey, GcHandle};
 use crate::gc::alloc::GcConfig;
 use crate::value::Value;
+use crate::value::closure::Closure;
 use crate::value::table::Table;
 
 /// ネイティブ（Rust 実装）関数のシグネチャ（本家 `lua_CFunction` 相当）。
@@ -50,6 +51,13 @@ pub struct CallInfo {
     /// このフレームで現在（または直近のサブ呼び出し時点で）実行中の命令のソース行。
     /// Lua フレームでは VM が逐次更新する。ネイティブ関数フレームは 0。
     pub current_line: u32,
+    /// ネイティブクロージャフレームの場合、実行中のクロージャのヒープキーを保持する。
+    ///
+    /// `call_native` がネイティブ関数を呼ぶ直前に設定する。Lua クロージャフレームと
+    /// `__call` 経由の呼び出しでは `None`。
+    /// `lua-capi` がこのキーで `c_functions: HashMap<ClosureKey, _>` を引き、
+    /// upvalue に安全にアクセスするために使用する（第二マイルストーン C API 対応）。
+    pub native_closure: Option<crate::gc::ClosureKey>,
 }
 
 /// 全スレッド共有の状態（本家 `global_State`）。
@@ -145,6 +153,69 @@ impl LuaState {
     pub fn collect_garbage(&mut self) {
         let roots = self.roots();
         self.global.heap.collect(roots);
+    }
+
+    // -------------------------------------------------------------------------
+    // ネイティブクロージャ / upvalue アクセス（第二マイルストーン C API 対応）
+    // -------------------------------------------------------------------------
+
+    /// 現在実行中のネイティブクロージャのヒープキーを返す。
+    ///
+    /// コールスタック末尾のフレームが [`CallInfo::native_closure`] を持っていれば返す。
+    /// Lua クロージャフレームや `__call` 経由の場合は `None`。
+    ///
+    /// # 主な用途（lua-capi）
+    /// `c_trampoline` の中から `state.current_native_closure()` でキーを得て
+    /// `c_functions: HashMap<ClosureKey, _>` を引き、登録済み C 関数と upvalue を取り出す。
+    ///
+    /// ```ignore
+    /// // lua-capi 内のイメージ（rua-capi/src/lib.rs）
+    /// fn c_trampoline(state: &mut LuaState) -> LuaResult<i32> {
+    ///     let key = state.current_native_closure()
+    ///         .ok_or_else(|| LuaError::Internal("no native closure".into()))?;
+    ///     // CapiState は LuaState をラップしているため、外から c_functions を参照する。
+    ///     // 実際の取り出しは CapiState 側で行う。
+    ///     ...
+    /// }
+    /// ```
+    pub fn current_native_closure(&self) -> Option<ClosureKey> {
+        self.call_info.last()?.native_closure
+    }
+
+    /// 現在実行中のネイティブクロージャの `i` 番目の upvalue を返す（0-origin）。
+    ///
+    /// 本家 `lua_upvalueindex(i)` の内部実装補助。
+    /// コールスタック末尾のフレームがネイティブクロージャであり、
+    /// そのクロージャがインデックス `i` の upvalue を持つ場合に値を返す。
+    /// それ以外（Lua フレーム、upvalue 範囲外）は `None`。
+    ///
+    /// ```ignore
+    /// // stdlib 関数内での使用例
+    /// fn my_native(state: &mut LuaState) -> LuaResult<i32> {
+    ///     let upv0 = state.current_upvalue(0).unwrap_or(Value::Nil);
+    ///     // upv0 を使って処理...
+    ///     Ok(0)
+    /// }
+    /// ```
+    pub fn current_upvalue(&self, i: usize) -> Option<Value> {
+        let key = self.current_native_closure()?;
+        match self.global.heap.get_closure(key)? {
+            Closure::Native(nc) => nc.upvalue(i).copied(),
+            Closure::Lua(_) => None,
+        }
+    }
+
+    /// 現在実行中のネイティブクロージャが持つ upvalue の個数を返す。
+    ///
+    /// ネイティブクロージャフレームでなければ `0` を返す。
+    pub fn current_upvalue_count(&self) -> usize {
+        let Some(key) = self.current_native_closure() else {
+            return 0;
+        };
+        match self.global.heap.get_closure(key) {
+            Some(Closure::Native(nc)) => nc.upvalue_count(),
+            _ => 0,
+        }
     }
 }
 

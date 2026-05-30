@@ -132,12 +132,16 @@ fn call_native(state: &mut LuaState, key: crate::gc::ClosureKey, args: &[Value])
     for a in args {
         state.stack.push(*a);
     }
+    // native_closure にキーを記録する。NativeFn 本体が
+    // `state.current_native_closure()` でキーを取得し、upvalue へアクセスできる
+    // （本家 lua_upvalueindex 相当, 第二マイルストーン C API 対応）。
     state.call_info.push(CallInfo {
         base,
         func: base,
         expected_results: 0,
         source: None,
         current_line: 0,
+        native_closure: Some(key),
     });
     let nres = func(state)?;
     let nres = nres.max(0) as usize;
@@ -181,6 +185,7 @@ fn call_lua(state: &mut LuaState, key: crate::gc::ClosureKey, args: &[Value]) ->
         expected_results: 0,
         source: Some(short_src(proto.source.as_deref())),
         current_line: proto.line_defined,
+        native_closure: None,  // Lua クロージャフレームは native_closure を持たない。
     });
 
     let result = execute(state, base, proto, upvals, varargs);

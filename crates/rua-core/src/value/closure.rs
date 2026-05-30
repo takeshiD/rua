@@ -103,8 +103,38 @@ impl NativeClosure {
         self.func
     }
 
+    /// upvalue スライス全体を返す。
     pub fn upvalues(&self) -> &[Value] {
         &self.upvalues
+    }
+
+    /// `i` 番目の upvalue（0-origin）を返す。範囲外は `None`。
+    ///
+    /// 本家 `lua_upvalueindex` の内部実装補助として [`crate::state::LuaState::current_upvalue`] から呼ぶ。
+    pub fn upvalue(&self, i: usize) -> Option<&Value> {
+        self.upvalues.get(i)
+    }
+
+    /// upvalue の個数を返す。
+    pub fn upvalue_count(&self) -> usize {
+        self.upvalues.len()
+    }
+
+    /// upvalue を末尾に追加する（`alloc_closure` 後に後付けする場合に使用）。
+    ///
+    /// `lua_pushcclosure` は `NativeClosure::with_upvalues` でまとめて渡すのが主流だが、
+    /// capi が個別に積む場合はこちらを使える。
+    pub fn push_upvalue(&mut self, v: Value) {
+        self.upvalues.push(v);
+    }
+
+    /// `i` 番目の upvalue を書き換える（0-origin）。範囲外は何もしない。
+    ///
+    /// 本家 `lua_setupvalue` の内部実装補助。
+    pub fn set_upvalue(&mut self, i: usize, v: Value) {
+        if let Some(slot) = self.upvalues.get_mut(i) {
+            *slot = v;
+        }
     }
 }
 
