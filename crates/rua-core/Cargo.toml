@@ -1,0 +1,9 @@
+[package]
+name = "rua-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Core of rua: a Lua 5.1 implementation in Rust (lexer/parser/compiler/vm/gc/value/stdlib)."
+
+[dependencies]
+slotmap.workspace = true
