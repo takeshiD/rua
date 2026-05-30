@@ -14,6 +14,7 @@
 //! [`value::Value`] は世代付きハンドル [`gc::GcHandle`] でそれらを参照する。
 //! mark-and-sweep はアリーナ走査で実装するため `unsafe` を用いない。
 
+pub mod api;
 pub mod compiler;
 pub mod error;
 pub mod gc;
