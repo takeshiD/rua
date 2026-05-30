@@ -1,0 +1,16 @@
+1	a
+2	b
+3	c
+ipairs count	2
+x,y,z
+pairs count	5
+nil
+only	1
+nil
+0
+3
+2
+b	c
+c
+50
+1 2 3 4 5

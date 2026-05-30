@@ -1,0 +1,14 @@
+true	1	2	3
+false	string	true
+false	plain
+false	table	42
+10	unused
+x	y
+false	08_errors.lua:29: custom message
+false	08_errors.lua:30: assertion failed!
+false	string
+false
+true	false	inner
+false	handled: oops
+true	ok
+1,3

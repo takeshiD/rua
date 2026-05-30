@@ -1,0 +1,53 @@
+# rua CI — fmt / clippy / build / test をまとめる。
+# lua-conformance 所有。リファレンス本家 lua5.1 が無くても壊れない構成
+# （golden_compare は rua 未実装時は自動スキップ、本家検証は --ignored で別ジョブ）。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  build-test:
+    name: build / test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+
+      - name: rustfmt
+        run: cargo fmt --all -- --check
+
+      - name: clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: build
+        run: cargo build --workspace --all-targets
+
+      - name: test
+        run: cargo test --workspace
+
+  # 本家 lua5.1 がある環境でのみ、コミット済み .expected の正しさを検証する。
+  # 本家導入に失敗してもワークフロー全体は壊さない（continue-on-error）。
+  reference-validation:
+    name: validate .expected against lua5.1
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: install reference lua5.1
+        run: sudo apt-get update && sudo apt-get install -y lua5.1
+
+      - name: validate committed .expected
+        run: cargo test -p rua-cli -- --ignored validate_expected_against_reference
