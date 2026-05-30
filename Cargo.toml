@@ -1,6 +1,23 @@
-[package]
-name = "rua"
+# rua — Lua 5.1 の Rust 実装（Cargo ワークスペース）
+# 構成は docs/ARCHITECTURE.md §2 を参照。
+#   - rua-core: lexer/parser/compiler/vm/gc/value/stdlib + Rust 高レベル API
+#   - rua-cli : スタンドアロン `rua` インタプリタ（`rua run <file>`）
+# rua-capi（C ABI 互換層）は第二マイルストーンで追加する（現時点では作らない）。
+[workspace]
+resolver = "2"
+members = [
+    "crates/rua-core",
+    "crates/rua-cli",
+]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
 
-[dependencies]
+[workspace.dependencies]
+rua-core = { path = "crates/rua-core" }
+# 世代付きインデックス（generational index）によるアリーナ。
+# GC 案A（ハンドル/アリーナ方式, ARCHITECTURE.md §5）の基盤として採用。
+# スロット再利用時に世代が進むため、解放済みハンドルの誤用を安全に検出できる。
+slotmap = "1.0"
