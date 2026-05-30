@@ -1,0 +1,13 @@
+[package]
+name = "rua-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Standalone `rua` interpreter CLI (rua run <file>)."
+
+[[bin]]
+name = "rua"
+path = "src/main.rs"
+
+[dependencies]
+rua-core.workspace = true
