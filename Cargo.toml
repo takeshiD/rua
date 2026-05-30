@@ -2,12 +2,18 @@
 # 構成は docs/ARCHITECTURE.md §2 を参照。
 #   - rua-core: lexer/parser/compiler/vm/gc/value/stdlib + Rust 高レベル API
 #   - rua-cli : スタンドアロン `rua` インタプリタ（`rua run <file>`）
-# rua-capi（C ABI 互換層）は第二マイルストーンで追加する（現時点では作らない）。
+#   - rua-capi: 本家 lua.h ABI 互換の extern "C" 層（cdylib + staticlib）
 [workspace]
 resolver = "2"
 members = [
     "crates/rua-core",
     "crates/rua-cli",
+    "crates/rua-capi",
+]
+# fuzz/ は cargo-fuzz + nightly + libfuzzer 依存のため通常ビルドから除外する
+# （`cargo build`/`cargo test` を壊さない）。実行は `cargo +nightly fuzz run ...`。
+exclude = [
+    "fuzz",
 ]
 
 [workspace.package]

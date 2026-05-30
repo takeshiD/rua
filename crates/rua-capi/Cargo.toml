@@ -1,0 +1,24 @@
+# rua-capi — 本家 Lua 5.1 の `lua.h`/`lauxlib.h`/`lualib.h` と ABI 互換の C API 層。
+# 既存の C/C++ 組み込みコードが無改変でリンクできることを目標とする（ARCHITECTURE.md §7）。
+[package]
+name = "rua-capi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+# staticlib: 本家同様 liblua.a 相当の静的リンク。cdylib: 共有ライブラリ。
+# rlib も残し、Rust 内 FFI 往復テスト（tests/）から関数を直接呼べるようにする。
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[dependencies]
+rua-core = { workspace = true }
+
+# cbindgen による自動ヘッダ生成は feature `cbindgen` で有効化する（既定 off）。
+# 既定ビルドを軽量・オフライン耐性のあるものに保つため、正典ヘッダは include/ に手書きで用意し、
+# cbindgen 生成ヘッダは差分検証用途とする（lua-conformance と連携, ARCHITECTURE.md §7）。
+[build-dependencies]
+cbindgen = { version = "0.29", optional = true }
+
+[features]
+cbindgen = ["dep:cbindgen"]
