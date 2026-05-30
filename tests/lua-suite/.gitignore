@@ -1,0 +1,6 @@
+# 公式テストスイート本体は別ライセンス配布のためコミットしない。
+# 取得物（fetch.sh が展開）を無視し、README/fetch.sh/.gitignore のみ追跡する。
+*
+!.gitignore
+!README.md
+!fetch.sh

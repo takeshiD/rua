@@ -1,0 +1,6 @@
+# cargo-fuzz の生成物はコミットしない。
+target/
+corpus/
+artifacts/
+coverage/
+Cargo.lock

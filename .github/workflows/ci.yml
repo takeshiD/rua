@@ -51,3 +51,42 @@ jobs:
 
       - name: validate committed .expected
         run: cargo test -p rua-cli -- --ignored validate_expected_against_reference
+
+  # cargo-fuzz による短時間ファジング・スモーク。nightly 依存のため別ジョブ・continue-on-error。
+  fuzz-smoke:
+    name: fuzz smoke (nightly)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+
+      - name: install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: fuzz compile_only (30s)
+        run: cargo +nightly fuzz run compile_only -- -max_total_time=30
+
+      - name: fuzz compile_run (30s)
+        run: cargo +nightly fuzz run compile_run -- -max_total_time=30
+
+  # 公式 Lua 5.1 テストスイート（PUC-Rio）のパス率を追跡。ネット取得が必要なため
+  # continue-on-error。取得失敗時はランナーが自動スキップ。RUA_SUITE_STRICT=1 で
+  # クラッシュ（パニック/abort）検出時のみ失敗させる（機能未実装による fail はパス率として記録）。
+  official-suite:
+    name: official Lua 5.1 suite (pass rate)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: fetch official suite
+        run: tests/lua-suite/fetch.sh
+
+      - name: run suite and report pass rate
+        env:
+          RUA_SUITE_STRICT: "1"
+        run: cargo test -p rua-cli --test official_suite -- --ignored --nocapture

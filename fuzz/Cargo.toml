@@ -1,0 +1,34 @@
+# cargo-fuzz ターゲット（lua-conformance 所有）。ワークスペースからは exclude 済み。
+# 実行には nightly と cargo-fuzz が必要:
+#   cargo install cargo-fuzz
+#   cargo +nightly fuzz run compile_run
+[package]
+name = "rua-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+rua-core = { path = "../crates/rua-core" }
+
+[[bin]]
+name = "compile_run"
+path = "fuzz_targets/compile_run.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "compile_only"
+path = "fuzz_targets/compile_only.rs"
+test = false
+doc = false
+bench = false
+
+# パニック時に最小化・再現できるよう最適化はしつつデバッグ情報を残す。
+[profile.release]
+debug = 1
