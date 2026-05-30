@@ -11,3 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 rua-core.workspace = true
+clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
+reedline = "0.46"
+nu-ansi-term = "0.50"
