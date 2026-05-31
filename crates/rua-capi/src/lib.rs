@@ -279,6 +279,7 @@ fn error_code(e: &LuaError) -> c_int {
         LuaError::Syntax(_) => LUA_ERRSYNTAX,
         LuaError::Memory => LUA_ERRMEM,
         LuaError::ErrorInError => LUA_ERRERR,
+        LuaError::Yield(_) => LUA_ERRRUN,
     }
 }
 
@@ -289,6 +290,9 @@ fn error_value(cs: &mut CapiState, e: LuaError) -> CoreValue {
         LuaError::Syntax(s) | LuaError::Internal(s) => cs.lua.new_string(s.as_bytes()),
         LuaError::Memory => cs.lua.new_string(b"not enough memory"),
         LuaError::ErrorInError => cs.lua.new_string(b"error in error handling"),
+        LuaError::Yield(_) => cs
+            .lua
+            .new_string(b"attempt to yield across a C-call boundary"),
     }
 }
 
@@ -1113,7 +1117,8 @@ fn call_c_function(
         expected_results: 0,
         source: None,
         current_line: 0,
-        native_closure: None, // C 関数は CapiState.c_functions で管理するため不要
+        native_closure: None,
+        lua_frame: None,
     });
     let _ = take_pending_error(); // 念のためクリア
     let p = cs.as_ptr();

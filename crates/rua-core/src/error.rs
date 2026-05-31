@@ -22,6 +22,9 @@ pub enum LuaError {
     ErrorInError,
     /// 内部実装エラー（rua の bug。本来到達しない経路）。
     Internal(String),
+    /// コルーチン yield（制御フロー専用、通常のエラーではない）。
+    /// `pcall` を透過して `coroutine.resume` まで伝播する。
+    Yield(Vec<Value>),
 }
 
 impl LuaError {
@@ -44,6 +47,7 @@ impl core::fmt::Display for LuaError {
             LuaError::Memory => write!(f, "not enough memory"),
             LuaError::ErrorInError => write!(f, "error in error handling"),
             LuaError::Internal(s) => write!(f, "internal error: {s}"),
+            LuaError::Yield(_) => write!(f, "attempt to yield"),
         }
     }
 }

@@ -12,7 +12,7 @@
 use slotmap::Key;
 
 use crate::error::{LuaError, LuaResult};
-use crate::gc::{GcHandle, TableKey};
+use crate::gc::{GcHandle, TableKey, ThreadKey};
 use crate::state::LuaState;
 use crate::state::NativeFn;
 use crate::value::closure::{Closure, NativeClosure};
@@ -195,6 +195,19 @@ pub fn check_function(
     }
 }
 
+/// スレッド（コルーチン）キーを取得する（スレッドでなければ引数エラー）。
+pub fn check_thread(
+    state: &mut LuaState,
+    args: &[Value],
+    i: usize,
+    fname: &str,
+) -> LuaResult<ThreadKey> {
+    match opt_value(args, i) {
+        Value::GcRef(GcHandle::Thread(k)) => Ok(k),
+        other => Err(type_arg_error(state, i + 1, fname, "coroutine", other)),
+    }
+}
+
 // ============================================================================
 // 文字列バイト列アクセス
 // ============================================================================
@@ -219,6 +232,18 @@ pub fn make_native(state: &mut LuaState, f: NativeFn) -> Value {
         .global
         .heap
         .alloc_closure(Closure::Native(NativeClosure::new(f)));
+    Value::GcRef(h)
+}
+
+/// `NativeFn` を upvalue 付きクロージャとして確保する（`coroutine.wrap` 等で使用）。
+pub fn make_native_with_upvalue(state: &mut LuaState, f: NativeFn, upval: Value) -> Value {
+    let h = state
+        .global
+        .heap
+        .alloc_closure(Closure::Native(NativeClosure::with_upvalues(
+            f,
+            vec![upval],
+        )));
     Value::GcRef(h)
 }
 
@@ -289,6 +314,7 @@ fn gc_addr(h: GcHandle) -> u64 {
         GcHandle::Table(k) => k.data().as_ffi(),
         GcHandle::Closure(k) => k.data().as_ffi(),
         GcHandle::Userdata(k) => k.data().as_ffi(),
+        GcHandle::Thread(k) => k.data().as_ffi(),
     }
 }
 
@@ -327,6 +353,7 @@ pub fn raw_tostring(state: &LuaState, v: Value) -> Vec<u8> {
                 GcHandle::Table(_) => "table",
                 GcHandle::Closure(_) => "function",
                 GcHandle::Userdata(_) => "userdata",
+                GcHandle::Thread(_) => "thread",
                 GcHandle::Str(_) => unreachable!(),
             };
             format!("{kind}: 0x{:012x}", gc_addr(h)).into_bytes()

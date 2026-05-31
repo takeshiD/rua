@@ -16,7 +16,7 @@
 //!     再開可能な状態機械、もしくは別スタックで表現する（設計は VM 立ち上げ後に確定）。
 //!   - スタックのオーバーフロー検査と伸長（本家 `luaD_growstack`）。
 
-use crate::error::LuaResult;
+use crate::error::{LuaError, LuaResult};
 use crate::state::LuaState;
 use crate::value::Value;
 
@@ -34,9 +34,11 @@ where
     let saved_ci = state.call_info.len();
     match body(state) {
         Ok(r) => Ok(r),
+        Err(LuaError::Yield(vals)) => {
+            // Yield は pcall を透過する（スタックを巻き戻さずそのまま上位へ伝播）。
+            Err(LuaError::Yield(vals))
+        }
         Err(e) => {
-            // エラー巻き戻し: 保護境界で確保された分のスタック/コールフレームを破棄。
-            // 本家の longjmp 後のスタック復元（luaD_seterrorobj 前段）に対応する。
             state.stack.truncate(saved_depth);
             state.call_info.truncate(saved_ci);
             Err(e)

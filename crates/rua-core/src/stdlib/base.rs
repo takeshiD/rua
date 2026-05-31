@@ -291,6 +291,7 @@ fn error_to_value(state: &mut LuaState, e: LuaError) -> Value {
         LuaError::Syntax(s) | LuaError::Internal(s) => state.new_string(s.as_bytes()),
         LuaError::Memory => state.new_string(b"not enough memory"),
         LuaError::ErrorInError => state.new_string(b"error in error handling"),
+        LuaError::Yield(_) => state.new_string(b"attempt to yield across a C-call boundary"),
     }
 }
 
