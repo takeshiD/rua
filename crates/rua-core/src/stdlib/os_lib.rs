@@ -1,9 +1,10 @@
-//! os ライブラリ（本家 `loslib.c` 相当・基本実装）。担当: **lua-stdlib**。
+//! os ライブラリ（本家 `loslib.c` 相当）。担当: **lua-stdlib**。
 //!
-//! `time`/`clock`/`date`/`getenv`/`difftime`/`tmpname`/`exit` の基本を提供する。
-//! `date` は strftime のサブセット（`%Y %m %d %H %M %S %y %j %p %A %a %B %b %%` 等）と
-//! UTC 指定 `!`、テーブル形式 `*t` をサポートする。タイムゾーンは UTC 固定（簡略化）。
+//! `time`/`clock`/`date`/`getenv`/`difftime`/`tmpname`/`exit`/`execute`/`remove`/`rename`
+//! を提供する。`date` は strftime のサブセット（`%Y %m %d %H %M %S %y %j %p %A %a %B %b %%`
+//! 等）と UTC 指定 `!`、テーブル形式 `*t` をサポートする。タイムゾーンは UTC 固定（簡略化）。
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::error::LuaResult;
@@ -30,6 +31,9 @@ pub fn open(state: &mut LuaState) {
     aux::register(state, tk, "difftime", l_difftime);
     aux::register(state, tk, "tmpname", l_tmpname);
     aux::register(state, tk, "exit", l_exit);
+    aux::register(state, tk, "execute", l_execute);
+    aux::register(state, tk, "remove", l_remove);
+    aux::register(state, tk, "rename", l_rename);
 
     if let GcHandle::Table(g) = state.global.globals {
         aux::set_field(state, g, "os", t);
@@ -96,9 +100,75 @@ fn l_getenv(state: &mut LuaState) -> LuaResult<i32> {
     aux::ret(state, vec![result])
 }
 
+static TMPNAME_SEQ: AtomicU64 = AtomicU64::new(0);
+
 fn l_tmpname(state: &mut LuaState) -> LuaResult<i32> {
-    let v = state.new_string(b"/tmp/lua_tmpfile");
+    let seq = TMPNAME_SEQ.fetch_add(1, Ordering::Relaxed);
+    let pid = std::process::id();
+    let name = format!("/tmp/lua_{pid:08x}_{seq:04x}");
+    let v = state.new_string(name.as_bytes());
     aux::ret(state, vec![v])
+}
+
+/// `os.execute([command])`: シェルコマンドを実行して終了コードを返す。
+/// 引数なしの場合、シェルが利用可能なら true を返す。
+fn l_execute(state: &mut LuaState) -> LuaResult<i32> {
+    let args = aux::args_vec(state);
+    match aux::opt_value(&args, 0) {
+        Value::Nil => aux::ret(state, vec![Value::Boolean(true)]),
+        _ => {
+            let cmd = aux::check_str_bytes(state, &args, 0, "execute")?;
+            let cmd_str = String::from_utf8_lossy(&cmd);
+            match std::process::Command::new("/bin/sh")
+                .arg("-c")
+                .arg(cmd_str.as_ref())
+                .status()
+            {
+                Ok(s) => {
+                    let code = s.code().unwrap_or(-1);
+                    aux::ret(state, vec![Value::Number(code as f64)])
+                }
+                Err(e) => {
+                    let msg = state.new_string(e.to_string().as_bytes());
+                    aux::ret(state, vec![Value::Nil, msg])
+                }
+            }
+        }
+    }
+}
+
+/// `os.remove(filename)`: ファイルまたは空ディレクトリを削除する。
+/// 成功時は true、失敗時は nil + エラーメッセージ。
+fn l_remove(state: &mut LuaState) -> LuaResult<i32> {
+    let args = aux::args_vec(state);
+    let filename = aux::check_str_bytes(state, &args, 0, "remove")?;
+    let filename = String::from_utf8_lossy(&filename);
+    let result =
+        std::fs::remove_file(filename.as_ref()).or_else(|_| std::fs::remove_dir(filename.as_ref()));
+    match result {
+        Ok(()) => aux::ret(state, vec![Value::Boolean(true)]),
+        Err(e) => {
+            let msg = state.new_string(e.to_string().as_bytes());
+            aux::ret(state, vec![Value::Nil, msg])
+        }
+    }
+}
+
+/// `os.rename(oldname, newname)`: ファイルまたはディレクトリをリネームする。
+/// 成功時は true、失敗時は nil + エラーメッセージ。
+fn l_rename(state: &mut LuaState) -> LuaResult<i32> {
+    let args = aux::args_vec(state);
+    let oldname = aux::check_str_bytes(state, &args, 0, "rename")?;
+    let newname = aux::check_str_bytes(state, &args, 1, "rename")?;
+    let oldname = String::from_utf8_lossy(&oldname);
+    let newname = String::from_utf8_lossy(&newname);
+    match std::fs::rename(oldname.as_ref(), newname.as_ref()) {
+        Ok(()) => aux::ret(state, vec![Value::Boolean(true)]),
+        Err(e) => {
+            let msg = state.new_string(e.to_string().as_bytes());
+            aux::ret(state, vec![Value::Nil, msg])
+        }
+    }
 }
 
 fn l_exit(state: &mut LuaState) -> LuaResult<i32> {
