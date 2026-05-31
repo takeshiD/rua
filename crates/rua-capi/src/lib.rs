@@ -536,9 +536,9 @@ pub unsafe extern "C" fn lua_pushlightuserdata(s: *mut lua_State, p: *mut c_void
 /// - [`CapiState`] は `#[repr(C)]` を付与してあり、`lua` フィールドのオフセットが 0 であること。
 fn c_trampoline(state: &mut LuaState) -> Result<i32, LuaError> {
     // 実行中クロージャのキーを取得。VM の call_native が native_closure を設定済みのはず。
-    let key = state.current_native_closure().ok_or_else(|| {
-        LuaError::Internal("c_trampoline: no native_closure in CallInfo".into())
-    })?;
+    let key = state
+        .current_native_closure()
+        .ok_or_else(|| LuaError::Internal("c_trampoline: no native_closure in CallInfo".into()))?;
 
     // LuaState ポインタから CapiState ポインタを逆引きする。
     // 安全性根拠: CapiState は #[repr(C)] で lua フィールドが先頭（オフセット 0）。
@@ -546,11 +546,10 @@ fn c_trampoline(state: &mut LuaState) -> Result<i32, LuaError> {
     let cs: &mut CapiState = unsafe { &mut *(state as *mut LuaState as *mut CapiState) };
 
     // c_functions マップから C 関数ポインタを取得。
-    let f = cs
-        .c_functions
-        .get(&key)
-        .map(|cf| cf.f)
-        .ok_or_else(|| LuaError::Internal("c_trampoline: no CFunc registered for key".into()))?;
+    let f =
+        cs.c_functions.get(&key).map(|cf| cf.f).ok_or_else(|| {
+            LuaError::Internal("c_trampoline: no CFunc registered for key".into())
+        })?;
 
     // thread-local エラースロットをクリアしてから C 関数を呼ぶ。
     let _ = take_pending_error();
@@ -737,9 +736,13 @@ pub unsafe extern "C" fn lua_objlen(s: *mut lua_State, idx: c_int) -> usize {
         CoreValue::GcRef(GcHandle::Str(k)) => {
             cs.lua.global.heap.get_str(k).map(|s| s.len()).unwrap_or(0)
         }
-        CoreValue::GcRef(GcHandle::Table(k)) => {
-            cs.lua.global.heap.get_table(k).map(|t| t.length()).unwrap_or(0)
-        }
+        CoreValue::GcRef(GcHandle::Table(k)) => cs
+            .lua
+            .global
+            .heap
+            .get_table(k)
+            .map(|t| t.length())
+            .unwrap_or(0),
         CoreValue::Number(n) => rua_core::value::convert::number_to_string(n).len(),
         _ => 0,
     }
@@ -883,9 +886,12 @@ pub unsafe extern "C" fn lua_getmetatable(s: *mut lua_State, idx: c_int) -> c_in
         CoreValue::GcRef(GcHandle::Table(k)) => {
             cs.lua.global.heap.get_table(k).and_then(|t| t.metatable())
         }
-        CoreValue::GcRef(GcHandle::Userdata(k)) => {
-            cs.lua.global.heap.get_userdata(k).and_then(|u| u.metatable())
-        }
+        CoreValue::GcRef(GcHandle::Userdata(k)) => cs
+            .lua
+            .global
+            .heap
+            .get_userdata(k)
+            .and_then(|u| u.metatable()),
         CoreValue::GcRef(GcHandle::Str(_)) => cs.lua.global.string_metatable,
         _ => None,
     };
@@ -1075,7 +1081,11 @@ fn do_call(cs: &mut CapiState, nargs: c_int, nresults: c_int) -> Result<(), LuaE
 }
 
 /// 値を呼び出す。登録 C 関数なら直接（C→C 経路）、それ以外は VM へ委譲（保護付き）。
-fn call_value(cs: &mut CapiState, func: CoreValue, args: &[CoreValue]) -> Result<Vec<CoreValue>, LuaError> {
+fn call_value(
+    cs: &mut CapiState,
+    func: CoreValue,
+    args: &[CoreValue],
+) -> Result<Vec<CoreValue>, LuaError> {
     if let CoreValue::GcRef(GcHandle::Closure(k)) = func
         && let Some(cf) = cs.c_functions.get(&k)
     {
@@ -1229,12 +1239,9 @@ pub unsafe extern "C" fn lua_concat(s: *mut lua_State, n: c_int) {
 fn concat_to_bytes(cs: &CapiState, v: CoreValue) -> Option<Vec<u8>> {
     match v {
         CoreValue::Number(n) => Some(rua_core::value::convert::number_to_string(n).into_bytes()),
-        CoreValue::GcRef(GcHandle::Str(k)) => cs
-            .lua
-            .global
-            .heap
-            .get_str(k)
-            .map(|s| s.as_bytes().to_vec()),
+        CoreValue::GcRef(GcHandle::Str(k)) => {
+            cs.lua.global.heap.get_str(k).map(|s| s.as_bytes().to_vec())
+        }
         _ => None,
     }
 }
@@ -1244,15 +1251,23 @@ fn concat_to_bytes(cs: &CapiState, v: CoreValue) -> Option<Vec<u8>> {
 /// NOTE: `__concat` メタメソッドの呼び出しは vm::interp の内部関数に依存するため、
 /// 現状は文字列/数値同士のみ対応。それ以外は型エラーを返す。
 /// `__concat` 対応は lua-vm へ依頼済み（公開 API 追加後に拡張）。
-fn concat_via_vm(state: &mut LuaState, a: CoreValue, b: CoreValue) -> rua_core::error::LuaResult<CoreValue> {
+fn concat_via_vm(
+    state: &mut LuaState,
+    a: CoreValue,
+    b: CoreValue,
+) -> rua_core::error::LuaResult<CoreValue> {
     let a_bytes = match a {
         CoreValue::Number(n) => Some(rua_core::value::convert::number_to_string(n).into_bytes()),
-        CoreValue::GcRef(GcHandle::Str(k)) => state.global.heap.get_str(k).map(|s| s.as_bytes().to_vec()),
+        CoreValue::GcRef(GcHandle::Str(k)) => {
+            state.global.heap.get_str(k).map(|s| s.as_bytes().to_vec())
+        }
         _ => None,
     };
     let b_bytes = match b {
         CoreValue::Number(n) => Some(rua_core::value::convert::number_to_string(n).into_bytes()),
-        CoreValue::GcRef(GcHandle::Str(k)) => state.global.heap.get_str(k).map(|s| s.as_bytes().to_vec()),
+        CoreValue::GcRef(GcHandle::Str(k)) => {
+            state.global.heap.get_str(k).map(|s| s.as_bytes().to_vec())
+        }
         _ => None,
     };
     if let (Some(mut ab), Some(bb)) = (a_bytes, b_bytes) {
@@ -1266,7 +1281,11 @@ fn concat_via_vm(state: &mut LuaState, a: CoreValue, b: CoreValue) -> rua_core::
     };
     Err(rua_core::error::LuaError::Runtime(
         state.new_string(
-            format!("attempt to concatenate a {} value", culprit.type_of().name()).as_bytes(),
+            format!(
+                "attempt to concatenate a {} value",
+                culprit.type_of().name()
+            )
+            .as_bytes(),
         ),
     ))
 }
@@ -1318,12 +1337,7 @@ pub unsafe extern "C" fn lua_next(s: *mut lua_State, idx: c_int) -> c_int {
     };
 
     // Table::next を使って key の「次」のエントリを取得する。
-    let result = cs
-        .lua
-        .global
-        .heap
-        .get_table(tk)
-        .map(|t| t.next(&key));
+    let result = cs.lua.global.heap.get_table(tk).map(|t| t.next(&key));
 
     match result {
         Some(Ok(Some((k, v)))) => {

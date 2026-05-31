@@ -95,7 +95,11 @@ fn script_args_exposed_as_arg_and_vararg() {
 fn completions_bash_generates_script() {
     let (stdout, _stderr, code) = run(&["completions", "bash"]);
     assert_eq!(code, 0);
-    assert!(stdout.contains("_rua"), "bash 補完: {}", &stdout[..stdout.len().min(80)]);
+    assert!(
+        stdout.contains("_rua"),
+        "bash 補完: {}",
+        &stdout[..stdout.len().min(80)]
+    );
 }
 
 #[test]

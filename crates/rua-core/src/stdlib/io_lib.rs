@@ -31,9 +31,9 @@ use std::sync::Mutex;
 use crate::error::LuaResult;
 use crate::gc::{GcHandle, TableKey};
 use crate::state::LuaState;
+use crate::value::Value;
 use crate::value::convert::number_to_string;
 use crate::value::userdata::Userdata;
-use crate::value::Value;
 
 use super::aux;
 
@@ -45,10 +45,7 @@ use super::aux;
 #[derive(Debug)]
 pub enum FileHandle {
     /// 通常ファイル（読み書き可能）。
-    File {
-        file: std::fs::File,
-        closed: bool,
-    },
+    File { file: std::fs::File, closed: bool },
     /// stdin（読み込み専用）。
     Stdin,
     /// stdout（書き込み専用）。
@@ -79,7 +76,7 @@ impl FileHandle {
         match self {
             FileHandle::File { file, closed } => {
                 if *closed {
-                    return Err(std::io::Error::new(std::io::ErrorKind::Other, "file is closed"));
+                    return Err(std::io::Error::other("file is closed"));
                 }
                 let mut line = Vec::new();
                 let mut buf = [0u8; 1];
@@ -116,7 +113,7 @@ impl FileHandle {
                 }
                 Ok(Some(line.into_bytes()))
             }
-            _ => Err(std::io::Error::new(std::io::ErrorKind::Other, "not readable")),
+            _ => Err(std::io::Error::other("not readable")),
         }
     }
 
@@ -124,7 +121,7 @@ impl FileHandle {
         match self {
             FileHandle::File { file, closed } => {
                 if *closed {
-                    return Err(std::io::Error::new(std::io::ErrorKind::Other, "file is closed"));
+                    return Err(std::io::Error::other("file is closed"));
                 }
                 let mut buf = Vec::new();
                 file.read_to_end(&mut buf)?;
@@ -137,7 +134,7 @@ impl FileHandle {
                 lock.read_to_end(&mut buf)?;
                 Ok(buf)
             }
-            _ => Err(std::io::Error::new(std::io::ErrorKind::Other, "not readable")),
+            _ => Err(std::io::Error::other("not readable")),
         }
     }
 
@@ -145,7 +142,7 @@ impl FileHandle {
         match self {
             FileHandle::File { file, closed } => {
                 if *closed {
-                    return Err(std::io::Error::new(std::io::ErrorKind::Other, "file is closed"));
+                    return Err(std::io::Error::other("file is closed"));
                 }
                 // Skip leading whitespace
                 let mut byte = [0u8; 1];
@@ -192,7 +189,7 @@ impl FileHandle {
                     None => Ok(None),
                 }
             }
-            _ => Err(std::io::Error::new(std::io::ErrorKind::Other, "not readable")),
+            _ => Err(std::io::Error::other("not readable")),
         }
     }
 
@@ -200,7 +197,7 @@ impl FileHandle {
         match self {
             FileHandle::File { file, closed } => {
                 if *closed {
-                    return Err(std::io::Error::new(std::io::ErrorKind::Other, "file is closed"));
+                    return Err(std::io::Error::other("file is closed"));
                 }
                 let mut buf = vec![0u8; count];
                 let n = file.read(&mut buf)?;
@@ -223,7 +220,7 @@ impl FileHandle {
                     Ok(Some(buf))
                 }
             }
-            _ => Err(std::io::Error::new(std::io::ErrorKind::Other, "not readable")),
+            _ => Err(std::io::Error::other("not readable")),
         }
     }
 
@@ -231,7 +228,7 @@ impl FileHandle {
         match self {
             FileHandle::File { file, closed } => {
                 if *closed {
-                    return Err(std::io::Error::new(std::io::ErrorKind::Other, "file is closed"));
+                    return Err(std::io::Error::other("file is closed"));
                 }
                 file.write_all(data)
             }
@@ -243,7 +240,7 @@ impl FileHandle {
                 let stderr = std::io::stderr();
                 stderr.lock().write_all(data)
             }
-            _ => Err(std::io::Error::new(std::io::ErrorKind::Other, "not writable")),
+            _ => Err(std::io::Error::other("not writable")),
         }
     }
 
@@ -251,7 +248,7 @@ impl FileHandle {
         match self {
             FileHandle::File { file, closed } => {
                 if *closed {
-                    return Err(std::io::Error::new(std::io::ErrorKind::Other, "file is closed"));
+                    return Err(std::io::Error::other("file is closed"));
                 }
                 file.flush()
             }
@@ -271,11 +268,11 @@ impl FileHandle {
         match self {
             FileHandle::File { file, closed } => {
                 if *closed {
-                    return Err(std::io::Error::new(std::io::ErrorKind::Other, "file is closed"));
+                    return Err(std::io::Error::other("file is closed"));
                 }
                 file.seek(whence)
             }
-            _ => Err(std::io::Error::new(std::io::ErrorKind::Other, "cannot seek")),
+            _ => Err(std::io::Error::other("cannot seek")),
         }
     }
 }
@@ -428,7 +425,8 @@ fn l_open(state: &mut LuaState) -> LuaResult<i32> {
             '+' => update = true,
             'b' => {} // バイナリモード（Unix では無意味）
             _ => {
-                let msg = state.new_string(format!("invalid mode '{}' in io.open", mode_str).as_bytes());
+                let msg =
+                    state.new_string(format!("invalid mode '{}' in io.open", mode_str).as_bytes());
                 return aux::ret(state, vec![Value::Nil, msg]);
             }
         }
@@ -444,7 +442,10 @@ fn l_open(state: &mut LuaState) -> LuaResult<i32> {
 
     match result {
         Ok(file) => {
-            let handle = FileHandle::File { file, closed: false };
+            let handle = FileHandle::File {
+                file,
+                closed: false,
+            };
             let ud_val = make_file_userdata(state, handle);
             aux::ret(state, vec![ud_val])
         }
@@ -524,7 +525,10 @@ fn l_lines(state: &mut LuaState) -> LuaResult<i32> {
 
     match std::fs::File::open(&filename_str) {
         Ok(file) => {
-            let handle = FileHandle::File { file, closed: false };
+            let handle = FileHandle::File {
+                file,
+                closed: false,
+            };
             let ud_val = make_file_userdata(state, handle);
             // ファイルオブジェクトをテーブルに格納してイテレータを返す
             // テーブルに file を保存してクロージャ状態として使う
@@ -551,9 +555,7 @@ fn l_lines(state: &mut LuaState) -> LuaResult<i32> {
             let _ = iter; // 使わない
             aux::ret(state, vec![state_t])
         }
-        Err(e) => {
-            Err(aux::rt_error(state, format!("{}: {}", filename_str, e)))
-        }
+        Err(e) => Err(aux::rt_error(state, format!("{}: {}", filename_str, e))),
     }
 }
 
@@ -602,22 +604,21 @@ fn l_input(state: &mut LuaState) -> LuaResult<i32> {
             let filename_str = String::from_utf8_lossy(&filename).to_string();
             match std::fs::File::open(&filename_str) {
                 Ok(file) => {
-                    let handle = FileHandle::File { file, closed: false };
+                    let handle = FileHandle::File {
+                        file,
+                        closed: false,
+                    };
                     let ud_val = make_file_userdata(state, handle);
                     aux::ret(state, vec![ud_val])
                 }
-                Err(e) => {
-                    Err(aux::rt_error(state, format!("{}: {}", filename_str, e)))
-                }
+                Err(e) => Err(aux::rt_error(state, format!("{}: {}", filename_str, e))),
             }
         }
         Value::GcRef(GcHandle::Userdata(_)) => {
             // ファイルオブジェクトが指定された場合はそのまま返す
             aux::ret(state, vec![v])
         }
-        _ => {
-            Err(aux::arg_error(state, 1, "input", "string or file expected"))
-        }
+        _ => Err(aux::arg_error(state, 1, "input", "string or file expected")),
     }
 }
 
@@ -638,21 +639,23 @@ fn l_output(state: &mut LuaState) -> LuaResult<i32> {
             let filename_str = String::from_utf8_lossy(&filename).to_string();
             match std::fs::File::create(&filename_str) {
                 Ok(file) => {
-                    let handle = FileHandle::File { file, closed: false };
+                    let handle = FileHandle::File {
+                        file,
+                        closed: false,
+                    };
                     let ud_val = make_file_userdata(state, handle);
                     aux::ret(state, vec![ud_val])
                 }
-                Err(e) => {
-                    Err(aux::rt_error(state, format!("{}: {}", filename_str, e)))
-                }
+                Err(e) => Err(aux::rt_error(state, format!("{}: {}", filename_str, e))),
             }
         }
-        Value::GcRef(GcHandle::Userdata(_)) => {
-            aux::ret(state, vec![v])
-        }
-        _ => {
-            Err(aux::arg_error(state, 1, "output", "string or file expected"))
-        }
+        Value::GcRef(GcHandle::Userdata(_)) => aux::ret(state, vec![v]),
+        _ => Err(aux::arg_error(
+            state,
+            1,
+            "output",
+            "string or file expected",
+        )),
     }
 }
 
@@ -686,16 +689,16 @@ fn read_from_handle_args(
     args: &[Value],
     file_val: Option<Value>,
 ) -> LuaResult<i32> {
-    // フォーマット引数の開始インデックス
-    let fmt_start = if file_val.is_some() { 0 } else { 0 };
+    // フォーマット引数の開始インデックス（file:read / io.read とも引数先頭から）
+    let fmt_start = 0;
 
     let fh_opt: Option<FileHandleRef> = file_val.and_then(|v| get_file_handle(state, v));
 
-    if let Some(ref fh) = fh_opt {
-        if fh.borrow().is_closed() {
-            let msg = state.new_string(b"attempt to use a closed file");
-            return aux::ret(state, vec![Value::Nil, msg]);
-        }
+    if let Some(ref fh) = fh_opt
+        && fh.borrow().is_closed()
+    {
+        let msg = state.new_string(b"attempt to use a closed file");
+        return aux::ret(state, vec![Value::Nil, msg]);
     }
 
     // フォーマットが無い場合は "*l" がデフォルト
@@ -747,9 +750,7 @@ fn read_one_format(
     fh_opt: Option<&FileHandleRef>,
 ) -> LuaResult<Value> {
     let fmt = match fmt_val {
-        Value::GcRef(GcHandle::Str(k)) => {
-            state.global.heap.get_str(k).unwrap().as_bytes().to_vec()
-        }
+        Value::GcRef(GcHandle::Str(k)) => state.global.heap.get_str(k).unwrap().as_bytes().to_vec(),
         Value::Number(n) => {
             // 数値の場合は n バイト読む
             let count = n as usize;
@@ -827,12 +828,10 @@ fn read_one_format(
                 let mut line = String::new();
                 match lock.read_line(&mut line) {
                     Ok(0) => Ok(None),
-                    Ok(_) => {
-                        match crate::value::convert::str_to_number(line.trim().as_bytes()) {
-                            Some(n) => Ok(Some(n)),
-                            None => Ok(None),
-                        }
-                    }
+                    Ok(_) => match crate::value::convert::str_to_number(line.trim().as_bytes()) {
+                        Some(n) => Ok(Some(n)),
+                        None => Ok(None),
+                    },
                     Err(e) => Err(e),
                 }
             };
@@ -857,9 +856,10 @@ fn read_one_format(
                 Err(e) => Err(aux::rt_error(state, e.to_string())),
             }
         }
-        _ => {
-            Err(aux::rt_error(state, format!("invalid format '{}'", String::from_utf8_lossy(&fmt))))
-        }
+        _ => Err(aux::rt_error(
+            state,
+            format!("invalid format '{}'", String::from_utf8_lossy(&fmt)),
+        )),
     }
 }
 
@@ -965,9 +965,7 @@ fn file_close(state: &mut LuaState) -> LuaResult<i32> {
             fh.borrow_mut().close();
             aux::ret(state, vec![Value::Boolean(true)])
         }
-        None => {
-            Err(aux::arg_error(state, 1, "close", "file expected"))
-        }
+        None => Err(aux::arg_error(state, 1, "close", "file expected")),
     }
 }
 
@@ -999,9 +997,7 @@ fn file_lines(state: &mut LuaState) -> LuaResult<i32> {
             }
             aux::ret(state, vec![state_t])
         }
-        None => {
-            Err(aux::arg_error(state, 1, "lines", "file expected"))
-        }
+        None => Err(aux::arg_error(state, 1, "lines", "file expected")),
     }
 }
 
@@ -1013,7 +1009,12 @@ fn lines_iter_file(state: &mut LuaState) -> LuaResult<i32> {
     let file_val = match state_t {
         Value::GcRef(GcHandle::Table(k)) => {
             let fkey = state.new_string(b"file");
-            state.global.heap.get_table(k).map(|t| t.get(&fkey)).unwrap_or(Value::Nil)
+            state
+                .global
+                .heap
+                .get_table(k)
+                .map(|t| t.get(&fkey))
+                .unwrap_or(Value::Nil)
         }
         _ => return aux::ret(state, vec![Value::Nil]),
     };

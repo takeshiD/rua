@@ -6,8 +6,8 @@
 
 use crate::error::{LuaError, LuaResult};
 
-use super::value::{Function, Table, Value};
 use super::Lua;
+use super::value::{Function, Table, Value};
 
 /// 変換失敗（型不一致）の実行時エラーを作る。
 pub(crate) fn conv_error(lua: &mut Lua, expected: &str, got: &str) -> LuaError {

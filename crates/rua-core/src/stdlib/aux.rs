@@ -73,13 +73,24 @@ pub fn arg_error(state: &mut LuaState, n: usize, fname: &str, extra: &str) -> Lu
 }
 
 /// 型不一致の引数エラー（`TYPE expected, got TYPE`）。
-fn type_arg_error(state: &mut LuaState, n: usize, fname: &str, expected: &str, got: Value) -> LuaError {
+fn type_arg_error(
+    state: &mut LuaState,
+    n: usize,
+    fname: &str,
+    expected: &str,
+    got: Value,
+) -> LuaError {
     let got_name = if matches!(got, Value::Nil) {
         "no value"
     } else {
         got.type_of().name()
     };
-    arg_error(state, n, fname, &format!("{expected} expected, got {got_name}"))
+    arg_error(
+        state,
+        n,
+        fname,
+        &format!("{expected} expected, got {got_name}"),
+    )
 }
 
 // ============================================================================
@@ -94,7 +105,9 @@ pub fn check_str_bytes(
     fname: &str,
 ) -> LuaResult<Vec<u8>> {
     match opt_value(args, i) {
-        Value::GcRef(GcHandle::Str(k)) => Ok(state.global.heap.get_str(k).unwrap().as_bytes().to_vec()),
+        Value::GcRef(GcHandle::Str(k)) => {
+            Ok(state.global.heap.get_str(k).unwrap().as_bytes().to_vec())
+        }
         Value::Number(n) => Ok(number_to_string(n).into_bytes()),
         other => Err(type_arg_error(state, i + 1, fname, "string", other)),
     }
@@ -108,7 +121,13 @@ pub fn check_number(state: &mut LuaState, args: &[Value], i: usize, fname: &str)
             let bytes = state.global.heap.get_str(k).unwrap().as_bytes().to_vec();
             match str_to_number(&bytes) {
                 Some(n) => Ok(n),
-                None => Err(type_arg_error(state, i + 1, fname, "number", opt_value(args, i))),
+                None => Err(type_arg_error(
+                    state,
+                    i + 1,
+                    fname,
+                    "number",
+                    opt_value(args, i),
+                )),
             }
         }
         other => Err(type_arg_error(state, i + 1, fname, "number", other)),
@@ -151,7 +170,12 @@ pub fn opt_int(
 }
 
 /// テーブルキーを取得する（テーブルでなければ引数エラー）。
-pub fn check_table(state: &mut LuaState, args: &[Value], i: usize, fname: &str) -> LuaResult<TableKey> {
+pub fn check_table(
+    state: &mut LuaState,
+    args: &[Value],
+    i: usize,
+    fname: &str,
+) -> LuaResult<TableKey> {
     match opt_value(args, i) {
         Value::GcRef(GcHandle::Table(k)) => Ok(k),
         other => Err(type_arg_error(state, i + 1, fname, "table", other)),
@@ -159,7 +183,12 @@ pub fn check_table(state: &mut LuaState, args: &[Value], i: usize, fname: &str) 
 }
 
 /// 関数値を取得する（関数でなければ引数エラー）。
-pub fn check_function(state: &mut LuaState, args: &[Value], i: usize, fname: &str) -> LuaResult<Value> {
+pub fn check_function(
+    state: &mut LuaState,
+    args: &[Value],
+    i: usize,
+    fname: &str,
+) -> LuaResult<Value> {
     match opt_value(args, i) {
         v @ Value::GcRef(GcHandle::Closure(_)) => Ok(v),
         other => Err(type_arg_error(state, i + 1, fname, "function", other)),
@@ -173,7 +202,9 @@ pub fn check_function(state: &mut LuaState, args: &[Value], i: usize, fname: &st
 /// 文字列値ならバイト列を返す。
 pub fn str_bytes(state: &LuaState, v: Value) -> Option<Vec<u8>> {
     match v {
-        Value::GcRef(GcHandle::Str(k)) => state.global.heap.get_str(k).map(|s| s.as_bytes().to_vec()),
+        Value::GcRef(GcHandle::Str(k)) => {
+            state.global.heap.get_str(k).map(|s| s.as_bytes().to_vec())
+        }
         _ => None,
     }
 }
@@ -184,7 +215,10 @@ pub fn str_bytes(state: &LuaState, v: Value) -> Option<Vec<u8>> {
 
 /// `NativeFn` を関数値（クロージャ）として確保する。
 pub fn make_native(state: &mut LuaState, f: NativeFn) -> Value {
-    let h = state.global.heap.alloc_closure(Closure::Native(NativeClosure::new(f)));
+    let h = state
+        .global
+        .heap
+        .alloc_closure(Closure::Native(NativeClosure::new(f)));
     Value::GcRef(h)
 }
 
@@ -212,10 +246,14 @@ pub fn set_field(state: &mut LuaState, tk: TableKey, name: &str, v: Value) {
 /// 値のメタテーブル（テーブルキー）を返す。
 pub fn metatable_handle(state: &LuaState, v: Value) -> Option<TableKey> {
     let mt = match v {
-        Value::GcRef(GcHandle::Table(k)) => state.global.heap.get_table(k).and_then(|t| t.metatable()),
-        Value::GcRef(GcHandle::Userdata(k)) => {
-            state.global.heap.get_userdata(k).and_then(|u| u.metatable())
+        Value::GcRef(GcHandle::Table(k)) => {
+            state.global.heap.get_table(k).and_then(|t| t.metatable())
         }
+        Value::GcRef(GcHandle::Userdata(k)) => state
+            .global
+            .heap
+            .get_userdata(k)
+            .and_then(|u| u.metatable()),
         // 文字列は型共有メタテーブルを参照（VM の `metatable_of` と整合）。
         Value::GcRef(GcHandle::Str(_)) => state.global.string_metatable,
         _ => None,
@@ -232,7 +270,12 @@ pub fn get_metafield(state: &mut LuaState, v: Value, event: &str) -> Value {
         return Value::Nil;
     };
     let key = state.new_string(event.as_bytes());
-    state.global.heap.get_table(mtk).map(|t| t.get(&key)).unwrap_or(Value::Nil)
+    state
+        .global
+        .heap
+        .get_table(mtk)
+        .map(|t| t.get(&key))
+        .unwrap_or(Value::Nil)
 }
 
 // ============================================================================
@@ -256,7 +299,9 @@ pub fn tostring_value(state: &mut LuaState, v: Value) -> LuaResult<Vec<u8>> {
         let res = crate::vm::call(state, mm, &[v])?;
         let first = res.into_iter().next().unwrap_or(Value::Nil);
         return match first {
-            Value::GcRef(GcHandle::Str(k)) => Ok(state.global.heap.get_str(k).unwrap().as_bytes().to_vec()),
+            Value::GcRef(GcHandle::Str(k)) => {
+                Ok(state.global.heap.get_str(k).unwrap().as_bytes().to_vec())
+            }
             _ => Err(rt_error(state, "'__tostring' must return a string")),
         };
     }
@@ -271,9 +316,12 @@ pub fn raw_tostring(state: &LuaState, v: Value) -> Vec<u8> {
         Value::Boolean(false) => b"false".to_vec(),
         Value::Number(n) => number_to_string(n).into_bytes(),
         Value::LightUserData(p) => format!("userdata: {p:p}").into_bytes(),
-        Value::GcRef(GcHandle::Str(k)) => {
-            state.global.heap.get_str(k).map(|s| s.as_bytes().to_vec()).unwrap_or_default()
-        }
+        Value::GcRef(GcHandle::Str(k)) => state
+            .global
+            .heap
+            .get_str(k)
+            .map(|s| s.as_bytes().to_vec())
+            .unwrap_or_default(),
         Value::GcRef(h) => {
             let kind = match h {
                 GcHandle::Table(_) => "table",

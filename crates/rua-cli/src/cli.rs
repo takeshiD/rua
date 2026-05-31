@@ -6,8 +6,8 @@
 //! # カラースタイル
 //! clap 4 の `styles` で色付きヘルプを提供する。
 
-use clap::{Args, Parser, Subcommand, builder::Styles};
 use clap::builder::styling::{AnsiColor, Effects};
+use clap::{Args, Parser, Subcommand, builder::Styles};
 use clap_complete::Shell;
 
 /// clap のヘルプ出力のカラースタイル（clap 4 の `Styles` API）。
@@ -144,7 +144,11 @@ pub struct DefaultArgs {
     pub script: Option<String>,
 
     /// スクリプトへ渡す引数（`arg` テーブル / メインチャンクの `...`）。
-    #[arg(value_name = "ARGS", trailing_var_arg = true, allow_hyphen_values = true)]
+    #[arg(
+        value_name = "ARGS",
+        trailing_var_arg = true,
+        allow_hyphen_values = true
+    )]
     pub args: Vec<String>,
 }
 
@@ -173,7 +177,10 @@ pub enum Command {
 #[command(styles = clap_styles())]
 pub struct RunArgs {
     /// 実行する Lua スクリプト。`-` で標準入力。
-    #[arg(value_name = "SCRIPT", help = "実行する Lua スクリプト（`-` で標準入力）")]
+    #[arg(
+        value_name = "SCRIPT",
+        help = "実行する Lua スクリプト（`-` で標準入力）"
+    )]
     pub script: String,
 
     /// スクリプトへ渡す引数（`arg[1]` 以降 / `...` に対応）。

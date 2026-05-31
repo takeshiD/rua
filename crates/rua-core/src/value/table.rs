@@ -293,10 +293,7 @@ impl Table {
             None
         };
         let first_hash = || -> Option<(Value, Value)> {
-            self.hash
-                .iter()
-                .next()
-                .map(|(k, v)| (hkey_to_value(k), *v))
+            self.hash.iter().next().map(|(k, v)| (hkey_to_value(k), *v))
         };
 
         match key {

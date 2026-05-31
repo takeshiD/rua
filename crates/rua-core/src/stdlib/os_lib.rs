@@ -167,14 +167,30 @@ fn l_date(state: &mut LuaState) -> LuaResult<i32> {
 
 const WDAY_ABBR: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const WDAY_FULL: [&str; 7] = [
-    "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
 ];
 const MON_ABBR: [&str; 12] = [
     "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
 const MON_FULL: [&str; 12] = [
-    "January", "February", "March", "April", "May", "June", "July", "August", "September",
-    "October", "November", "December",
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
 ];
 
 fn strftime(fmt: &[u8], tm: &Tm) -> String {
@@ -216,7 +232,12 @@ fn strftime(fmt: &[u8], tm: &Tm) -> String {
                 tm.sec,
                 tm.year
             )),
-            b'x' => out.push_str(&format!("{:02}/{:02}/{:02}", tm.month, tm.day, tm.year.rem_euclid(100))),
+            b'x' => out.push_str(&format!(
+                "{:02}/{:02}/{:02}",
+                tm.month,
+                tm.day,
+                tm.year.rem_euclid(100)
+            )),
             b'X' => out.push_str(&format!("{:02}:{:02}:{:02}", tm.hour, tm.min, tm.sec)),
             b'%' => out.push('%'),
             other => {

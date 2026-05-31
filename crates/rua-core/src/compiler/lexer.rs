@@ -452,8 +452,7 @@ impl<'a> Lexer<'a> {
                     // 識別子は ASCII のみ（Lua 5.1 の名前は ASCII 英数字 + '_'）。
                     let word = std::str::from_utf8(&self.src[start..self.pos])
                         .expect("identifier bytes are ASCII");
-                    let tok = Token::keyword(word)
-                        .unwrap_or_else(|| Token::Name(word.to_string()));
+                    let tok = Token::keyword(word).unwrap_or_else(|| Token::Name(word.to_string()));
                     return self.spanned(tok);
                 }
                 other => {
@@ -794,9 +793,15 @@ mod tests {
             lex_all(r#" "a\tb\n" "#),
             vec![Token::Str(b"a\tb\n".to_vec())]
         );
-        assert_eq!(lex_all(r#" "\65\66\67" "#), vec![Token::Str(b"ABC".to_vec())]);
+        assert_eq!(
+            lex_all(r#" "\65\66\67" "#),
+            vec![Token::Str(b"ABC".to_vec())]
+        );
         assert_eq!(lex_all(r#" '\\' "#), vec![Token::Str(b"\\".to_vec())]);
-        assert_eq!(lex_all(r#" "quote: \"" "#), vec![Token::Str(b"quote: \"".to_vec())]);
+        assert_eq!(
+            lex_all(r#" "quote: \"" "#),
+            vec![Token::Str(b"quote: \"".to_vec())]
+        );
     }
 
     #[test]
@@ -831,7 +836,10 @@ mod tests {
     #[test]
     fn comments() {
         assert_eq!(lex_all("-- a comment\n42"), vec![Token::Number(42.0)]);
-        assert_eq!(lex_all("--[[ long\ncomment ]] 42"), vec![Token::Number(42.0)]);
+        assert_eq!(
+            lex_all("--[[ long\ncomment ]] 42"),
+            vec![Token::Number(42.0)]
+        );
         assert_eq!(lex_all("--[==[ x ]] y ]==] 7"), vec![Token::Number(7.0)]);
     }
 
@@ -862,10 +870,7 @@ mod tests {
 
     #[test]
     fn shebang_skipped() {
-        assert_eq!(
-            lex_all("#!/usr/bin/lua\nreturn"),
-            vec![Token::Return]
-        );
+        assert_eq!(lex_all("#!/usr/bin/lua\nreturn"), vec![Token::Return]);
     }
 
     #[test]

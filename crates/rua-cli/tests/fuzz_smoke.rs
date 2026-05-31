@@ -77,7 +77,8 @@ fn token_soup(seed: u64, len: usize) -> String {
         "function", "end", "if", "then", "else", "elseif", "while", "do", "for", "in", "repeat",
         "until", "return", "break", "local", "nil", "true", "false", "and", "or", "not", "{", "}",
         "(", ")", "[", "]", "=", "==", "~=", "<", ">", "..", "...", "+", "-", "*", "/", "%", "^",
-        "#", ",", ";", ":", ".", "1", "0xFF", "1e10", "'s'", "\"d\"", "x", "foo", "print", "[[", "]]",
+        "#", ",", ";", ":", ".", "1", "0xFF", "1e10", "'s'", "\"d\"", "x", "foo", "print", "[[",
+        "]]",
     ];
     let mut state = seed.wrapping_mul(0x9E3779B97F4A7C15).wrapping_add(1);
     let mut next = || {
@@ -171,11 +172,16 @@ fn smoke_no_panic_on_adversarial_sources() {
         let src = token_soup(seed, len);
         total += 1;
         if let Some(reason) = run_and_detect_crash(1000 + seed as usize, &src) {
-            crashes.push(format!("[token-soup seed={seed} len={len}] source = {src:?}\n{reason}"));
+            crashes.push(format!(
+                "[token-soup seed={seed} len={len}] source = {src:?}\n{reason}"
+            ));
         }
     }
 
-    eprintln!("[fuzz-smoke] {total} 本実行, クラッシュ {} 件", crashes.len());
+    eprintln!(
+        "[fuzz-smoke] {total} 本実行, クラッシュ {} 件",
+        crashes.len()
+    );
 
     assert!(
         crashes.is_empty(),

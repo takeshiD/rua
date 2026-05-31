@@ -54,8 +54,14 @@ fn cycles_are_collected() {
     let t2 = heap.alloc_table(Table::new());
     let GcHandle::Table(k1) = t1 else { panic!() };
     let GcHandle::Table(k2) = t2 else { panic!() };
-    heap.get_table_mut(k1).unwrap().array_mut().push(Value::GcRef(t2));
-    heap.get_table_mut(k2).unwrap().array_mut().push(Value::GcRef(t1));
+    heap.get_table_mut(k1)
+        .unwrap()
+        .array_mut()
+        .push(Value::GcRef(t2));
+    heap.get_table_mut(k2)
+        .unwrap()
+        .array_mut()
+        .push(Value::GcRef(t1));
     assert_eq!(heap.live_object_count(), 2);
 
     // ルート空 → 循環していても両方回収される（参照カウントでは漏れるケース）。
