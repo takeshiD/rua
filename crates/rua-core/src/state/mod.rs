@@ -18,8 +18,8 @@
 pub mod call;
 
 use crate::gc::Heap;
-use crate::gc::{ClosureKey, GcHandle};
 use crate::gc::alloc::GcConfig;
+use crate::gc::{ClosureKey, GcHandle};
 use crate::value::Value;
 use crate::value::closure::Closure;
 use crate::value::table::Table;

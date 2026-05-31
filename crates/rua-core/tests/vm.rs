@@ -8,10 +8,10 @@ use std::rc::Rc;
 
 use rua_core::gc::GcHandle;
 use rua_core::state::LuaState;
+use rua_core::value::Value;
 use rua_core::value::closure::{Closure, NativeClosure};
 use rua_core::value::table::Table;
-use rua_core::value::Value;
-use rua_core::vm::opcode::{rk_as_k, Instruction, OpCode};
+use rua_core::vm::opcode::{Instruction, OpCode, rk_as_k};
 use rua_core::vm::proto::Proto;
 use rua_core::vm::{call, run};
 
@@ -55,13 +55,13 @@ fn arithmetic_and_return() {
 fn table_set_get_and_length() {
     // local t = {}; t[1]=10; t[2]=20; t[3]=30; return #t, t[2]
     let code = vec![
-        Instruction::abc(OpCode::NewTable, 0, 0, 0),               // R0 = {}
+        Instruction::abc(OpCode::NewTable, 0, 0, 0), // R0 = {}
         Instruction::abc(OpCode::SetTable, 0, rk_as_k(0), rk_as_k(1)), // t[1]=10
         Instruction::abc(OpCode::SetTable, 0, rk_as_k(2), rk_as_k(3)), // t[2]=20
         Instruction::abc(OpCode::SetTable, 0, rk_as_k(4), rk_as_k(5)), // t[3]=30
-        Instruction::abc(OpCode::Len, 1, 0, 0),                    // R1 = #t
-        Instruction::abc(OpCode::GetTable, 2, 0, rk_as_k(2)),      // R2 = t[2]
-        Instruction::abc(OpCode::Return, 1, 3, 0),                 // return R1, R2
+        Instruction::abc(OpCode::Len, 1, 0, 0),      // R1 = #t
+        Instruction::abc(OpCode::GetTable, 2, 0, rk_as_k(2)), // R2 = t[2]
+        Instruction::abc(OpCode::Return, 1, 3, 0),   // return R1, R2
     ];
     let consts = vec![
         Value::Number(1.0),
@@ -84,15 +84,15 @@ fn numeric_for_loop_sum() {
     // local s=0; for i=1,5 do s=s+i end; return s   => 15
     // レジスタ: R0=s, ループ制御 R1(idx/init) R2(limit) R3(step) R4(i)
     let code = vec![
-        Instruction::abc(OpCode::LoadK, 0, 0, 0),    // R0 = 0   (K0=0)  ※abx だが a/bx で表現
+        Instruction::abc(OpCode::LoadK, 0, 0, 0), // R0 = 0   (K0=0)  ※abx だが a/bx で表現
         // 上は本当は LOADK(abx) だが bx=0 なので abc とビットが一致する。明示的に abx で作る:
-        Instruction::abx(OpCode::LoadK, 1, 1),       // R1 = 1   (init, K1=1)
-        Instruction::abx(OpCode::LoadK, 2, 2),       // R2 = 5   (limit, K2=5)
-        Instruction::abx(OpCode::LoadK, 3, 1),       // R3 = 1   (step, K1=1)
-        Instruction::asbx(OpCode::ForPrep, 1, 1),    // prep, jump to FORLOOP
-        Instruction::abc(OpCode::Add, 0, 0, 4),      // body: R0 = R0 + R4(i)
-        Instruction::asbx(OpCode::ForLoop, 1, -2),   // loop back to body
-        Instruction::abc(OpCode::Return, 0, 2, 0),   // return R0
+        Instruction::abx(OpCode::LoadK, 1, 1), // R1 = 1   (init, K1=1)
+        Instruction::abx(OpCode::LoadK, 2, 2), // R2 = 5   (limit, K2=5)
+        Instruction::abx(OpCode::LoadK, 3, 1), // R3 = 1   (step, K1=1)
+        Instruction::asbx(OpCode::ForPrep, 1, 1), // prep, jump to FORLOOP
+        Instruction::abc(OpCode::Add, 0, 0, 4), // body: R0 = R0 + R4(i)
+        Instruction::asbx(OpCode::ForLoop, 1, -2), // loop back to body
+        Instruction::abc(OpCode::Return, 0, 2, 0), // return R0
     ];
     let consts = vec![Value::Number(0.0), Value::Number(1.0), Value::Number(5.0)];
     // 注意: 先頭 LOADK は abx で作り直す。
@@ -162,7 +162,11 @@ fn closure_counter_shares_upvalue() {
 
     let mut state = LuaState::new();
     let res = run(&mut state, parent, &[]).unwrap();
-    assert_eq!(num(&res[0]), 3.0, "共有 upvalue が 3 回インクリメントされるべき");
+    assert_eq!(
+        num(&res[0]),
+        3.0,
+        "共有 upvalue が 3 回インクリメントされるべき"
+    );
 }
 
 #[test]
@@ -197,7 +201,9 @@ fn index_metamethod_fallback() {
     // fallback テーブル: { answer = 42 }
     let fallback = state.global.heap.alloc_table(Table::new());
     let answer_key = state.new_string(b"answer");
-    let GcHandle::Table(fk) = fallback else { unreachable!() };
+    let GcHandle::Table(fk) = fallback else {
+        unreachable!()
+    };
     state
         .global
         .heap
@@ -209,7 +215,9 @@ fn index_metamethod_fallback() {
     // metatable: { __index = fallback }
     let mt = state.global.heap.alloc_table(Table::new());
     let index_key = state.new_string(b"__index");
-    let GcHandle::Table(mtk) = mt else { unreachable!() };
+    let GcHandle::Table(mtk) = mt else {
+        unreachable!()
+    };
     state
         .global
         .heap
@@ -220,7 +228,9 @@ fn index_metamethod_fallback() {
 
     // t = {} with metatable mt
     let t = state.global.heap.alloc_table(Table::new());
-    let GcHandle::Table(tk) = t else { unreachable!() };
+    let GcHandle::Table(tk) = t else {
+        unreachable!()
+    };
     state
         .global
         .heap
@@ -276,7 +286,10 @@ fn string_concat() {
     let res = run(&mut state, p2, &[]).unwrap();
     match res[0] {
         Value::GcRef(GcHandle::Str(k)) => {
-            assert_eq!(state.global.heap.get_str(k).unwrap().as_bytes(), b"foobar42");
+            assert_eq!(
+                state.global.heap.get_str(k).unwrap().as_bytes(),
+                b"foobar42"
+            );
         }
         other => panic!("expected string, got {other:?}"),
     }
@@ -295,13 +308,13 @@ fn deep_tail_recursion_does_not_overflow() {
             Instruction::abc(OpCode::Eq, 1, 0, rk_as_k(0)), // if (n==0) ~= true -> pc++（n!=0なら次をスキップ）
             Instruction::asbx(OpCode::Jmp, 0, 7),           // n==0: 末尾の RETURN acc へ
             Instruction::abc(OpCode::Sub, 2, 0, rk_as_k(1)), // R2 = n - 1
-            Instruction::abc(OpCode::Add, 3, 1, 0),          // R3 = acc + n
-            Instruction::abx(OpCode::GetGlobal, 4, 2),       // R4 = _G["f"]
-            Instruction::abc(OpCode::Move, 5, 2, 0),         // R5 = R2
-            Instruction::abc(OpCode::Move, 6, 3, 0),         // R6 = R3
-            Instruction::abc(OpCode::TailCall, 4, 3, 0),     // return f(R5, R6)
-            Instruction::abc(OpCode::Return, 4, 0, 0),       // （TAILCALL 後の定型 RETURN, 実行されない）
-            Instruction::abc(OpCode::Return, 1, 2, 0),       // return acc
+            Instruction::abc(OpCode::Add, 3, 1, 0),         // R3 = acc + n
+            Instruction::abx(OpCode::GetGlobal, 4, 2),      // R4 = _G["f"]
+            Instruction::abc(OpCode::Move, 5, 2, 0),        // R5 = R2
+            Instruction::abc(OpCode::Move, 6, 3, 0),        // R6 = R3
+            Instruction::abc(OpCode::TailCall, 4, 3, 0),    // return f(R5, R6)
+            Instruction::abc(OpCode::Return, 4, 0, 0), // （TAILCALL 後の定型 RETURN, 実行されない）
+            Instruction::abc(OpCode::Return, 1, 2, 0), // return acc
         ],
         constants: vec![Value::Number(0.0), Value::Number(1.0), fname],
         num_params: 2,
@@ -314,14 +327,18 @@ fn deep_tail_recursion_does_not_overflow() {
     let main = Rc::new(Proto {
         code: vec![
             Instruction::abx(OpCode::Closure, 0, 0),   // R0 = f
-            Instruction::abx(OpCode::SetGlobal, 0, 0),  // _G["f"] = R0
-            Instruction::abx(OpCode::GetGlobal, 0, 0),  // R0 = _G["f"]
-            Instruction::abx(OpCode::LoadK, 1, 1),      // R1 = 100000
-            Instruction::abx(OpCode::LoadK, 2, 2),      // R2 = 0
-            Instruction::abc(OpCode::Call, 0, 3, 2),    // R0 = f(R1, R2)
-            Instruction::abc(OpCode::Return, 0, 2, 0),  // return R0
+            Instruction::abx(OpCode::SetGlobal, 0, 0), // _G["f"] = R0
+            Instruction::abx(OpCode::GetGlobal, 0, 0), // R0 = _G["f"]
+            Instruction::abx(OpCode::LoadK, 1, 1),     // R1 = 100000
+            Instruction::abx(OpCode::LoadK, 2, 2),     // R2 = 0
+            Instruction::abc(OpCode::Call, 0, 3, 2),   // R0 = f(R1, R2)
+            Instruction::abc(OpCode::Return, 0, 2, 0), // return R0
         ],
-        constants: vec![state.new_string(b"f"), Value::Number(100000.0), Value::Number(0.0)],
+        constants: vec![
+            state.new_string(b"f"),
+            Value::Number(100000.0),
+            Value::Number(0.0),
+        ],
         protos: vec![f_proto],
         max_stack_size: 3,
         source: Some("@main".to_string()),
@@ -340,9 +357,13 @@ fn string_indexing_uses_string_metatable() {
     fn upper(state: &mut LuaState) -> rua_core::error::LuaResult<i32> {
         let base = state.call_info.last().unwrap().base;
         let s = match state.stack.get(base) {
-            Some(Value::GcRef(GcHandle::Str(k))) => {
-                state.global.heap.get_str(*k).unwrap().as_bytes().to_ascii_uppercase()
-            }
+            Some(Value::GcRef(GcHandle::Str(k))) => state
+                .global
+                .heap
+                .get_str(*k)
+                .unwrap()
+                .as_bytes()
+                .to_ascii_uppercase(),
             _ => Vec::new(),
         };
         let v = state.new_string(&s);
@@ -359,7 +380,9 @@ fn string_indexing_uses_string_metatable() {
         .heap
         .alloc_closure(Closure::Native(NativeClosure::new(upper)));
     let upper_key = state.new_string(b"upper");
-    let GcHandle::Table(slk) = string_lib else { unreachable!() };
+    let GcHandle::Table(slk) = string_lib else {
+        unreachable!()
+    };
     state
         .global
         .heap
@@ -371,7 +394,9 @@ fn string_indexing_uses_string_metatable() {
     // string メタテーブル = { __index = string_lib }
     let str_mt = state.global.heap.alloc_table(Table::new());
     let index_key = state.new_string(b"__index");
-    let GcHandle::Table(mtk) = str_mt else { unreachable!() };
+    let GcHandle::Table(mtk) = str_mt else {
+        unreachable!()
+    };
     state
         .global
         .heap
@@ -430,9 +455,13 @@ fn error_message_strips_chunk_prefix() {
     let rua_core::error::LuaError::Runtime(Value::GcRef(GcHandle::Str(k))) = err else {
         panic!("expected runtime string error, got {err:?}");
     };
-    let msg = String::from_utf8_lossy(state.global.heap.get_str(k).unwrap().as_bytes()).into_owned();
+    let msg =
+        String::from_utf8_lossy(state.global.heap.get_str(k).unwrap().as_bytes()).into_owned();
     assert!(msg.starts_with("myscript.lua:2:"), "got: {msg}");
-    assert!(msg.contains("attempt to perform arithmetic on a nil value"), "got: {msg}");
+    assert!(
+        msg.contains("attempt to perform arithmetic on a nil value"),
+        "got: {msg}"
+    );
 }
 
 #[test]
@@ -455,7 +484,9 @@ fn where_string_reports_caller_line() {
         .alloc_closure(Closure::Native(NativeClosure::new(probe)));
     // _G["probe"] = probe
     let gname = state.new_string(b"probe");
-    let GcHandle::Table(gk) = state.global.globals else { unreachable!() };
+    let GcHandle::Table(gk) = state.global.globals else {
+        unreachable!()
+    };
     state
         .global
         .heap

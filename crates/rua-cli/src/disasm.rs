@@ -93,7 +93,11 @@ fn print_function(out: &mut String, heap: &Heap, p: &Proto, verbose: u8) {
 }
 
 fn print_header(out: &mut String, p: &Proto) {
-    let kind = if p.line_defined == 0 { "main" } else { "function" };
+    let kind = if p.line_defined == 0 {
+        "main"
+    } else {
+        "function"
+    };
     let source = p.source.as_deref().map(chunk_id).unwrap_or_default();
     let n = p.code.len();
     let _ = writeln!(
@@ -180,7 +184,14 @@ fn rk_operand(x: u32, mode: ArgMode) -> i64 {
 }
 
 /// 末尾コメント（本家 `PrintCode` の switch(o) 相当）。
-fn print_comment(out: &mut String, heap: &Heap, p: &Proto, pc: usize, ins: Instruction, op: OpCode) {
+fn print_comment(
+    out: &mut String,
+    heap: &Heap,
+    p: &Proto,
+    pc: usize,
+    ins: Instruction,
+    op: OpCode,
+) {
     use OpCode::*;
     match op {
         LoadK => {
@@ -293,7 +304,14 @@ fn print_constants(out: &mut String, heap: &Heap, p: &Proto) {
 fn print_locals(out: &mut String, p: &Proto) {
     let _ = writeln!(out, "locals ({}):", p.local_vars.len());
     for (i, lv) in p.local_vars.iter().enumerate() {
-        let _ = writeln!(out, "\t{}\t{}\t{}\t{}", i, lv.name, lv.start_pc + 1, lv.end_pc + 1);
+        let _ = writeln!(
+            out,
+            "\t{}\t{}\t{}\t{}",
+            i,
+            lv.name,
+            lv.start_pc + 1,
+            lv.end_pc + 1
+        );
     }
 }
 

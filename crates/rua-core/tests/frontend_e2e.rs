@@ -50,14 +50,23 @@ fn multiple_return_values() {
 #[test]
 fn if_else_branch() {
     let mut state = LuaState::new();
-    assert_eq!(num(&run_src(&mut state, "if 1 < 2 then return 10 else return 20 end")[0]), 10.0);
-    assert_eq!(num(&run_src(&mut state, "if 1 > 2 then return 10 else return 20 end")[0]), 20.0);
+    assert_eq!(
+        num(&run_src(&mut state, "if 1 < 2 then return 10 else return 20 end")[0]),
+        10.0
+    );
+    assert_eq!(
+        num(&run_src(&mut state, "if 1 > 2 then return 10 else return 20 end")[0]),
+        20.0
+    );
 }
 
 #[test]
 fn numeric_for_sum() {
     let mut state = LuaState::new();
-    let r = run_src(&mut state, "local s = 0 for i = 1, 10 do s = s + i end return s");
+    let r = run_src(
+        &mut state,
+        "local s = 0 for i = 1, 10 do s = s + i end return s",
+    );
     assert_eq!(num(&r[0]), 55.0);
 }
 
@@ -135,7 +144,10 @@ fn and_or_logic() {
 #[test]
 fn table_array_and_length() {
     let mut state = LuaState::new();
-    let r = run_src(&mut state, "local t = {10, 20, 30} return t[1] + t[2] + t[3], #t");
+    let r = run_src(
+        &mut state,
+        "local t = {10, 20, 30} return t[1] + t[2] + t[3], #t",
+    );
     assert_eq!(num(&r[0]), 60.0);
     assert_eq!(num(&r[1]), 3.0);
 }

@@ -19,16 +19,15 @@ use std::rc::Rc;
 
 use nu_ansi_term::{Color, Style};
 use reedline::{
-    Completer, FileBackedHistory, Highlighter, Prompt, PromptEditMode, PromptHistorySearch,
-    PromptHistorySearchStatus, Reedline, ReedlineMenu, Signal, Span, StyledText, Suggestion,
-    ColumnarMenu, MenuBuilder,
-    default_emacs_keybindings, Emacs, KeyCode, KeyModifiers, ReedlineEvent,
+    ColumnarMenu, Completer, Emacs, FileBackedHistory, Highlighter, KeyCode, KeyModifiers,
+    MenuBuilder, Prompt, PromptEditMode, PromptHistorySearch, PromptHistorySearchStatus, Reedline,
+    ReedlineEvent, ReedlineMenu, Signal, Span, StyledText, Suggestion, default_emacs_keybindings,
 };
 
 use rua_core::compiler::compile;
 use rua_core::error::LuaError;
 use rua_core::gc::GcHandle;
-use rua_core::state::{call::pcall, LuaState};
+use rua_core::state::{LuaState, call::pcall};
 use rua_core::stdlib;
 use rua_core::value::Value;
 use rua_core::vm::{call as vm_call, run};
@@ -47,8 +46,8 @@ const LUA_VERSION: &str = "Lua 5.1";
 // ============================================================================
 
 const LUA_KEYWORDS: &[&str] = &[
-    "and", "break", "do", "else", "elseif", "end", "false", "for", "function", "if", "in",
-    "local", "nil", "not", "or", "repeat", "return", "then", "true", "until", "while",
+    "and", "break", "do", "else", "elseif", "end", "false", "for", "function", "if", "in", "local",
+    "nil", "not", "or", "repeat", "return", "then", "true", "until", "while",
 ];
 
 // ============================================================================
@@ -101,7 +100,10 @@ impl Prompt for LuaPrompt {
             PromptHistorySearchStatus::Passing => "",
             PromptHistorySearchStatus::Failing => "failing ",
         };
-        Cow::Owned(format!("({}reverse-search: {}) ", prefix, history_search.term))
+        Cow::Owned(format!(
+            "({}reverse-search: {}) ",
+            prefix, history_search.term
+        ))
     }
 }
 
@@ -130,13 +132,13 @@ enum HlKind {
 impl HlKind {
     fn style(self) -> Style {
         match self {
-            HlKind::Keyword  => Style::new().fg(Color::Cyan).bold(),
-            HlKind::String   => Style::new().fg(Color::Green),
-            HlKind::Number   => Style::new().fg(Color::Yellow),
-            HlKind::Comment  => Style::new().fg(Color::DarkGray).italic(),
+            HlKind::Keyword => Style::new().fg(Color::Cyan).bold(),
+            HlKind::String => Style::new().fg(Color::Green),
+            HlKind::Number => Style::new().fg(Color::Yellow),
+            HlKind::Comment => Style::new().fg(Color::DarkGray).italic(),
             HlKind::Operator => Style::new().fg(Color::LightMagenta),
-            HlKind::Name     => Style::new().fg(Color::White),
-            HlKind::Other    => Style::new(),
+            HlKind::Name => Style::new().fg(Color::White),
+            HlKind::Other => Style::new(),
         }
     }
 }
@@ -255,8 +257,7 @@ fn tokenize_for_highlight(src: &str) -> Vec<(usize, usize, HlKind)> {
         {
             let start = i;
             // 16進数 `0x`/`0X`
-            if bytes[i] == b'0' && i + 1 < len && (bytes[i + 1] == b'x' || bytes[i + 1] == b'X')
-            {
+            if bytes[i] == b'0' && i + 1 < len && (bytes[i + 1] == b'x' || bytes[i + 1] == b'X') {
                 i += 2;
                 while i < len && bytes[i].is_ascii_hexdigit() {
                     i += 1;
@@ -321,8 +322,8 @@ fn tokenize_for_highlight(src: &str) -> Vec<(usize, usize, HlKind)> {
 
         // 1文字演算子・記号。
         match bytes[i] {
-            b'+' | b'-' | b'*' | b'/' | b'%' | b'^' | b'#' | b'<' | b'>' | b'=' | b'('
-            | b')' | b'{' | b'}' | b']' | b';' | b':' | b',' | b'.' => {
+            b'+' | b'-' | b'*' | b'/' | b'%' | b'^' | b'#' | b'<' | b'>' | b'=' | b'(' | b')'
+            | b'{' | b'}' | b']' | b';' | b':' | b',' | b'.' => {
                 tokens.push((i, i + 1, HlKind::Operator));
                 i += 1;
             }
@@ -491,11 +492,7 @@ fn is_incomplete(e: &LuaError) -> bool {
 fn eval_line(state: &mut LuaState, src: &str) -> Result<bool, LuaError> {
     // まず `return <src>` を試みる（式評価モード）。
     let return_src = format!("return {src}");
-    let expr_proto = compile(
-        &mut state.global.heap,
-        return_src.as_bytes(),
-        "=stdin",
-    );
+    let expr_proto = compile(&mut state.global.heap, return_src.as_bytes(), "=stdin");
 
     let proto = match expr_proto {
         Ok(p) => p,
@@ -509,7 +506,10 @@ fn eval_line(state: &mut LuaState, src: &str) -> Result<bool, LuaError> {
                 Ok(_) => return Ok(true),
                 Err(e) => {
                     let msg = render_error(state, &e);
-                    eprintln!("{}", Style::new().fg(Color::Red).paint(format!("rua: {msg}")));
+                    eprintln!(
+                        "{}",
+                        Style::new().fg(Color::Red).paint(format!("rua: {msg}"))
+                    );
                     return Ok(false);
                 }
             }
@@ -528,7 +528,10 @@ fn eval_line(state: &mut LuaState, src: &str) -> Result<bool, LuaError> {
         Ok(_) => Ok(true),
         Err(e) => {
             let msg = render_error(state, &e);
-            eprintln!("{}", Style::new().fg(Color::Red).paint(format!("rua: {msg}")));
+            eprintln!(
+                "{}",
+                Style::new().fg(Color::Red).paint(format!("rua: {msg}"))
+            );
             Ok(false)
         }
     }
@@ -572,11 +575,12 @@ fn value_to_display(state: &LuaState, v: &Value) -> String {
         Value::Nil => "nil".to_string(),
         Value::Boolean(b) => b.to_string(),
         Value::Number(n) => format_number(*n),
-        Value::GcRef(GcHandle::Str(k)) => {
-            state.global.heap.get_str(*k)
-                .map(|s| String::from_utf8_lossy(s.as_bytes()).into_owned())
-                .unwrap_or_else(|| "?".to_string())
-        }
+        Value::GcRef(GcHandle::Str(k)) => state
+            .global
+            .heap
+            .get_str(*k)
+            .map(|s| String::from_utf8_lossy(s.as_bytes()).into_owned())
+            .unwrap_or_else(|| "?".to_string()),
         Value::GcRef(GcHandle::Table(_)) => "table".to_string(),
         Value::GcRef(GcHandle::Closure(_)) => "function".to_string(),
         Value::GcRef(GcHandle::Userdata(_)) => "userdata".to_string(),
@@ -602,7 +606,9 @@ fn print_banner() {
     let banner = format!(
         "{}\n{}",
         Style::new().fg(Color::Green).bold().paint(&version_str),
-        Style::new().fg(Color::DarkGray).paint("Type 'exit' to quit. Type Ctrl-D or Ctrl-C to abort."),
+        Style::new()
+            .fg(Color::DarkGray)
+            .paint("Type 'exit' to quit. Type Ctrl-D or Ctrl-C to abort."),
     );
     println!("{banner}");
 }
@@ -733,7 +739,9 @@ fn run_pipe_mode(state: &mut LuaState) -> ExitCode {
     }
 
     // バッファに残りがある場合は実行を試みる。
-    if !buf.trim().is_empty() && let Err(e) = eval_line(state, &buf) {
+    if !buf.trim().is_empty()
+        && let Err(e) = eval_line(state, &buf)
+    {
         let msg = render_error(state, &e);
         eprintln!("rua: {msg}");
         exit_code = ExitCode::from(1);
@@ -816,7 +824,10 @@ pub fn main() -> ExitCode {
                     Err(e) => {
                         // 構文エラー（不完全ではない）: エラーを表示してクリア。
                         let msg = render_error(&state, &e);
-                        eprintln!("{}", Style::new().fg(Color::Red).paint(format!("rua: {msg}")));
+                        eprintln!(
+                            "{}",
+                            Style::new().fg(Color::Red).paint(format!("rua: {msg}"))
+                        );
                         input_buf.clear();
                         prompt.is_continuation = false;
                     }

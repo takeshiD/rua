@@ -21,11 +21,17 @@ pub struct Stmt {
 #[derive(Debug, Clone, PartialEq)]
 pub enum StmtKind {
     /// `local a, b = e1, e2`（右辺は省略可）。
-    Local { names: Vec<String>, exprs: Vec<Expr> },
+    Local {
+        names: Vec<String>,
+        exprs: Vec<Expr>,
+    },
     /// `local function f() ... end`。
     LocalFunction { name: String, body: FuncBody },
     /// `lhs1, lhs2 = e1, e2`（`lhs` は Name か Index のみ）。
-    Assign { targets: Vec<Expr>, exprs: Vec<Expr> },
+    Assign {
+        targets: Vec<Expr>,
+        exprs: Vec<Expr>,
+    },
     /// 式文（関数呼び出し）。`Expr` は Call / MethodCall のみ。
     ExprStat(Expr),
     /// `do ... end`。
@@ -102,9 +108,15 @@ pub enum ExprKind {
     /// 変数参照（codegen で local/upvalue/global に解決される）。
     Name(String),
     /// `obj[key]`（`obj.field` は key=Str(field) に正規化）。
-    Index { obj: Box<Expr>, key: Box<Expr> },
+    Index {
+        obj: Box<Expr>,
+        key: Box<Expr>,
+    },
     /// `func(args)`。
-    Call { func: Box<Expr>, args: Vec<Expr> },
+    Call {
+        func: Box<Expr>,
+        args: Vec<Expr>,
+    },
     /// `obj:method(args)`。
     MethodCall {
         obj: Box<Expr>,
@@ -122,7 +134,10 @@ pub enum ExprKind {
         rhs: Box<Expr>,
     },
     /// 単項演算。
-    UnOp { op: UnOp, expr: Box<Expr> },
+    UnOp {
+        op: UnOp,
+        expr: Box<Expr>,
+    },
     /// 括弧式 `(e)`。多値を 1 値へ切り詰める意味を持つ（本家 VRELOCABLE 調整）。
     Paren(Box<Expr>),
 }
