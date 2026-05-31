@@ -90,7 +90,9 @@ pub unsafe extern "C" fn luaL_loadfile(s: *mut lua_State, filename: *const c_cha
     match std::fs::read(&path) {
         Ok(bytes) => crate::load_buffer(cs, &bytes, &format!("@{path}")),
         Err(e) => {
-            let v = cs.lua.new_string(format!("cannot open {path}: {e}").as_bytes());
+            let v = cs
+                .lua
+                .new_string(format!("cannot open {path}: {e}").as_bytes());
             cs.lua.stack.push(v);
             crate::LUA_ERRRUN
         }
@@ -141,7 +143,11 @@ pub unsafe extern "C" fn luaL_checkinteger(s: *mut lua_State, idx: c_int) -> lua
 
 /// 省略可能な数値引数（本家 `luaL_optnumber`）。
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaL_optnumber(s: *mut lua_State, idx: c_int, def: lua_Number) -> lua_Number {
+pub unsafe extern "C" fn luaL_optnumber(
+    s: *mut lua_State,
+    idx: c_int,
+    def: lua_Number,
+) -> lua_Number {
     if unsafe { crate::lua_type(s, idx) } <= LUA_TNIL {
         def
     } else {
@@ -309,7 +315,10 @@ pub unsafe extern "C" fn luaL_unref(s: *mut lua_State, t: c_int, r: c_int) {
     let free_head = num_field(cs, tk, 0);
     // t[r] = t[0]（旧フリーヘッドを退避）、 t[0] = r。
     if let Some(tbl) = cs.lua.global.heap.get_table_mut(tk) {
-        let _ = tbl.set(CoreValue::Number(r as f64), CoreValue::Number(free_head as f64));
+        let _ = tbl.set(
+            CoreValue::Number(r as f64),
+            CoreValue::Number(free_head as f64),
+        );
         let _ = tbl.set(CoreValue::Number(0.0), CoreValue::Number(r as f64));
     }
 }

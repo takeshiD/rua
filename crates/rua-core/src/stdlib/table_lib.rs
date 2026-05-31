@@ -6,8 +6,8 @@
 use crate::error::LuaResult;
 use crate::gc::{GcHandle, TableKey};
 use crate::state::LuaState;
-use crate::value::convert::number_to_string;
 use crate::value::Value;
+use crate::value::convert::number_to_string;
 
 use super::aux;
 
@@ -31,7 +31,12 @@ pub fn open(state: &mut LuaState) {
 
 /// テーブルの border 長（`#t`）。
 fn table_len(state: &LuaState, tk: TableKey) -> i64 {
-    state.global.heap.get_table(tk).map(|t| t.length()).unwrap_or(0) as i64
+    state
+        .global
+        .heap
+        .get_table(tk)
+        .map(|t| t.length())
+        .unwrap_or(0) as i64
 }
 
 fn set_int(state: &mut LuaState, tk: TableKey, i: i64, v: Value) {
@@ -42,9 +47,19 @@ fn set_int(state: &mut LuaState, tk: TableKey, i: i64, v: Value) {
 
 fn get_int(state: &LuaState, tk: TableKey, i: i64) -> Value {
     if i >= 1 {
-        state.global.heap.get_table(tk).map(|t| t.get_int(i as usize)).unwrap_or(Value::Nil)
+        state
+            .global
+            .heap
+            .get_table(tk)
+            .map(|t| t.get_int(i as usize))
+            .unwrap_or(Value::Nil)
     } else {
-        state.global.heap.get_table(tk).map(|t| t.get(&Value::Number(i as f64))).unwrap_or(Value::Nil)
+        state
+            .global
+            .heap
+            .get_table(tk)
+            .map(|t| t.get(&Value::Number(i as f64)))
+            .unwrap_or(Value::Nil)
     }
 }
 
@@ -76,7 +91,10 @@ fn l_insert(state: &mut LuaState) -> LuaResult<i32> {
             set_int(state, tk, pos, args[2]);
         }
         _ => {
-            return Err(aux::rt_error(state, "wrong number of arguments to 'insert'"));
+            return Err(aux::rt_error(
+                state,
+                "wrong number of arguments to 'insert'",
+            ));
         }
     }
     aux::ret0(state)
@@ -134,7 +152,9 @@ fn l_concat(state: &mut LuaState) -> LuaResult<i32> {
     while idx <= j {
         let v = get_int(state, tk, idx);
         let piece = match v {
-            Value::GcRef(GcHandle::Str(k)) => state.global.heap.get_str(k).unwrap().as_bytes().to_vec(),
+            Value::GcRef(GcHandle::Str(k)) => {
+                state.global.heap.get_str(k).unwrap().as_bytes().to_vec()
+            }
             Value::Number(num) => number_to_string(num).into_bytes(),
             other => {
                 return Err(aux::rt_error(
@@ -228,7 +248,11 @@ fn l_maxn(state: &mut LuaState) -> LuaResult<i32> {
     let mut max = 0.0f64;
     let mut key = Value::Nil;
     loop {
-        let nxt = state.global.heap.get_table(tk).and_then(|t| t.next(&key).ok().flatten());
+        let nxt = state
+            .global
+            .heap
+            .get_table(tk)
+            .and_then(|t| t.next(&key).ok().flatten());
         match nxt {
             Some((k, _)) => {
                 if let Value::Number(n) = k

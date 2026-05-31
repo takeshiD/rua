@@ -84,11 +84,7 @@ fn int2fb(mut x: u32) -> u32 {
         x = (x + 1) >> 1;
         e += 1;
     }
-    if x < 8 {
-        x
-    } else {
-        ((e + 1) << 3) | (x - 8)
-    }
+    if x < 8 { x } else { ((e + 1) << 3) | (x - 8) }
 }
 
 // ============================================================================
@@ -113,7 +109,10 @@ enum EK {
     /// グローバル変数（名前の定数表インデックス）。
     Global(u32),
     /// テーブル添字 `t[k]`（テーブルのレジスタ + キーの RK）。
-    Indexed { table: u32, key: u32 },
+    Indexed {
+        table: u32,
+        key: u32,
+    },
     /// 再配置可能命令（A 未設定。`info` = pc）。
     Reloc(u32),
     /// 非再配置（既にレジスタ `info` にある）。
@@ -324,7 +323,11 @@ impl FuncState {
     }
 
     fn number_k(&mut self, n: f64) -> u32 {
-        let bits = if n == 0.0 { 0.0f64.to_bits() } else { n.to_bits() };
+        let bits = if n == 0.0 {
+            0.0f64.to_bits()
+        } else {
+            n.to_bits()
+        };
         self.add_constant(ConstKey::Num(bits), Value::Number(n))
     }
 
@@ -669,11 +672,9 @@ impl FuncState {
                 // EK::K として LOADK 経由でレジスタへ落とす。
                 e.k = EK::K(idx);
             }
-            EK::K(idx) => {
-                if idx <= MAXINDEXRK {
-                    return Ok(rk_as_k(idx));
-                }
-                // idx > MAXINDEXRK: LOADK でレジスタへ spill させる（fall-through）。
+            // idx > MAXINDEXRK の場合はマッチせず、下の exp2anyreg で LOADK spill される。
+            EK::K(idx) if idx <= MAXINDEXRK => {
+                return Ok(rk_as_k(idx));
             }
             _ => {}
         }
@@ -963,7 +964,11 @@ impl FuncState {
     /// 本家 `luaK_setlist`: テーブルコンストラクタの配列部を書き込む。
     fn set_list(&mut self, base: u32, nelems: u32, tostore: i32, line: u32) {
         let c = (nelems - 1) / LFIELDS_PER_FLUSH + 1;
-        let b = if tostore == MULTRET { 0 } else { tostore as u32 };
+        let b = if tostore == MULTRET {
+            0
+        } else {
+            tostore as u32
+        };
         if c <= MAXARG_C {
             self.emit_abc(OpCode::SetList, base, b, c, line);
         } else {
@@ -1278,7 +1283,9 @@ impl<'h> CodeGen<'h> {
         let mut lhs: Vec<ExpDesc> = Vec::with_capacity(targets.len());
         for (i, t) in targets.iter().enumerate() {
             let v = self.compile_lvalue(t)?;
-            if i > 0 && let EK::Local(reg) = v.k {
+            if i > 0
+                && let EK::Local(reg) = v.k
+            {
                 self.check_conflict(&mut lhs, reg, line)?;
             }
             lhs.push(v);
@@ -1421,7 +1428,10 @@ impl<'h> CodeGen<'h> {
         let mut flist;
         // 最初の if アーム。
         let (first_cond, first_body) = &arms[0];
-        flist = self.cond(first_cond, first_body.stmts.first().map(|s| s.line).unwrap_or(line))?;
+        flist = self.cond(
+            first_cond,
+            first_body.stmts.first().map(|s| s.line).unwrap_or(line),
+        )?;
         self.block(first_body)?;
 
         for (cond_e, body) in &arms[1..] {
@@ -1722,9 +1732,7 @@ impl<'h> CodeGen<'h> {
                 Ok(o)
             }
             ExprKind::Call { func, args } => self.code_call(func, args, line),
-            ExprKind::MethodCall { obj, method, args } => {
-                self.code_method(obj, method, args, line)
-            }
+            ExprKind::MethodCall { obj, method, args } => self.code_method(obj, method, args, line),
             ExprKind::Function(body) => self.func_body(body),
             ExprKind::Table(fields) => self.constructor(fields, line),
             ExprKind::BinOp { op, lhs, rhs } => self.code_binop(*op, lhs, rhs, line),
@@ -1914,7 +1922,13 @@ impl FuncState {
     }
 
     /// 本家 `luaK_posfix`: 二項演算の最終コード生成。
-    fn posfix(&mut self, op: BinOp, e1: &mut ExpDesc, e2: &mut ExpDesc, line: u32) -> LuaResult<()> {
+    fn posfix(
+        &mut self,
+        op: BinOp,
+        e1: &mut ExpDesc,
+        e2: &mut ExpDesc,
+        line: u32,
+    ) -> LuaResult<()> {
         match op {
             BinOp::And => {
                 debug_assert_eq!(e1.t, NO_JUMP);
@@ -2130,13 +2144,8 @@ mod tests {
     #[test]
     fn nested_for_break_inner_only() {
         // 内側ループの break が内側のみ抜ける（外側に影響しない）。
-        let p = compile(
-            "for a = 1, 3 do for b = 1, 3 do if b == 2 then break end end end",
-        );
-        assert_eq!(
-            ops(&p).iter().filter(|&&x| x == OpCode::ForLoop).count(),
-            2
-        );
+        let p = compile("for a = 1, 3 do for b = 1, 3 do if b == 2 then break end end end");
+        assert_eq!(ops(&p).iter().filter(|&&x| x == OpCode::ForLoop).count(), 2);
     }
 
     #[test]
@@ -2167,7 +2176,12 @@ mod tests {
         // 子 proto が 1 つ、upvalue 1 個。
         assert_eq!(p.protos.len(), 1);
         assert_eq!(p.protos[0].num_upvalues, 1);
-        assert!(p.protos[0].code.iter().any(|i| i.opcode() == Some(OpCode::GetUpval)));
+        assert!(
+            p.protos[0]
+                .code
+                .iter()
+                .any(|i| i.opcode() == Some(OpCode::GetUpval))
+        );
     }
 
     #[test]
@@ -2175,10 +2189,12 @@ mod tests {
         let p = compile("local function f(...) return ... end");
         assert_eq!(p.protos.len(), 1);
         assert!(p.protos[0].is_vararg);
-        assert!(p.protos[0]
-            .code
-            .iter()
-            .any(|i| i.opcode() == Some(OpCode::Vararg)));
+        assert!(
+            p.protos[0]
+                .code
+                .iter()
+                .any(|i| i.opcode() == Some(OpCode::Vararg))
+        );
     }
 
     #[test]

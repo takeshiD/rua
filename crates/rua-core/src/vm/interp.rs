@@ -22,7 +22,7 @@ use crate::value::convert::{number_to_string, str_to_number};
 use crate::value::table::Table;
 use crate::value::{LuaType, Value};
 
-use super::opcode::{self, OpCode, LFIELDS_PER_FLUSH};
+use super::opcode::{self, LFIELDS_PER_FLUSH, OpCode};
 use super::proto::Proto;
 
 /// Lua 関数呼び出しの最大ネスト深度（本家 `LUAI_MAXCCALLS` 相当の保護）。
@@ -123,7 +123,11 @@ pub fn where_string(state: &LuaState, level: usize) -> String {
 // 呼び出し（Lua / ネイティブ）
 // ============================================================================
 
-fn call_native(state: &mut LuaState, key: crate::gc::ClosureKey, args: &[Value]) -> LuaResult<Vec<Value>> {
+fn call_native(
+    state: &mut LuaState,
+    key: crate::gc::ClosureKey,
+    args: &[Value],
+) -> LuaResult<Vec<Value>> {
     let func = match state.global.heap.get_closure(key) {
         Some(Closure::Native(nc)) => nc.func(),
         _ => return Err(rt_err(state, "internal: not a native closure".to_string())),
@@ -153,7 +157,11 @@ fn call_native(state: &mut LuaState, key: crate::gc::ClosureKey, args: &[Value])
     Ok(results)
 }
 
-fn call_lua(state: &mut LuaState, key: crate::gc::ClosureKey, args: &[Value]) -> LuaResult<Vec<Value>> {
+fn call_lua(
+    state: &mut LuaState,
+    key: crate::gc::ClosureKey,
+    args: &[Value],
+) -> LuaResult<Vec<Value>> {
     let (proto, upvals) = match state.global.heap.get_closure(key) {
         Some(Closure::Lua(lc)) => (lc.proto().clone(), lc.upvalues().to_vec()),
         _ => return Err(rt_err(state, "internal: not a Lua closure".to_string())),
@@ -168,9 +176,7 @@ fn call_lua(state: &mut LuaState, key: crate::gc::ClosureKey, args: &[Value]) ->
         state.stack.push(args.get(i).copied().unwrap_or(Value::Nil));
     }
     // 残りのレジスタを nil で確保。
-    state
-        .stack
-        .resize(base + maxstack.max(nparams), Value::Nil);
+    state.stack.resize(base + maxstack.max(nparams), Value::Nil);
 
     // 可変長引数（`...`）。
     let varargs: Vec<Value> = if proto.is_vararg && args.len() > nparams {
@@ -185,7 +191,7 @@ fn call_lua(state: &mut LuaState, key: crate::gc::ClosureKey, args: &[Value]) ->
         expected_results: 0,
         source: Some(short_src(proto.source.as_deref())),
         current_line: proto.line_defined,
-        native_closure: None,  // Lua クロージャフレームは native_closure を持たない。
+        native_closure: None, // Lua クロージャフレームは native_closure を持たない。
     });
 
     let result = execute(state, base, proto, upvals, varargs);
@@ -221,377 +227,397 @@ fn execute(
         }
 
         loop {
-        let instr = proto.code[pc];
-        let cur_pc = pc;
-        pc += 1;
+            let instr = proto.code[pc];
+            let cur_pc = pc;
+            pc += 1;
 
-        // `error()` の level 指定（luaL_where 相当）に備え、現在行を CallInfo に記録する。
-        if let Some(ci) = state.call_info.last_mut() {
-            ci.current_line = proto.line_at(cur_pc);
-        }
-
-        let op = match instr.opcode() {
-            Some(op) => op,
-            None => return Err(err_at(state, &proto, cur_pc, "bad opcode".to_string())),
-        };
-        let a = instr.a() as usize;
-
-        match op {
-            OpCode::Move => {
-                let v = reg(state, base, instr.b() as usize);
-                set_reg(state, base + a, v);
+            // `error()` の level 指定（luaL_where 相当）に備え、現在行を CallInfo に記録する。
+            if let Some(ci) = state.call_info.last_mut() {
+                ci.current_line = proto.line_at(cur_pc);
             }
-            OpCode::LoadK => {
-                let v = proto.constants[instr.bx() as usize];
-                set_reg(state, base + a, v);
-            }
-            OpCode::LoadBool => {
-                set_reg(state, base + a, Value::Boolean(instr.b() != 0));
-                if instr.c() != 0 {
-                    pc += 1;
+
+            let op = match instr.opcode() {
+                Some(op) => op,
+                None => return Err(err_at(state, &proto, cur_pc, "bad opcode".to_string())),
+            };
+            let a = instr.a() as usize;
+
+            match op {
+                OpCode::Move => {
+                    let v = reg(state, base, instr.b() as usize);
+                    set_reg(state, base + a, v);
                 }
-            }
-            OpCode::LoadNil => {
-                let b = instr.b() as usize;
-                for r in a..=b {
-                    set_reg(state, base + r, Value::Nil);
+                OpCode::LoadK => {
+                    let v = proto.constants[instr.bx() as usize];
+                    set_reg(state, base + a, v);
                 }
-            }
-            OpCode::GetUpval => {
-                let v = upval_get(state, &upvals[instr.b() as usize]);
-                set_reg(state, base + a, v);
-            }
-            OpCode::SetUpval => {
-                let v = reg(state, base, a);
-                upval_set(state, &upvals[instr.b() as usize], v);
-            }
-            OpCode::GetGlobal => {
-                let key = proto.constants[instr.bx() as usize];
-                let g = Value::GcRef(state.global.globals);
-                let v = index_get(state, g, key, &proto, cur_pc)?;
-                set_reg(state, base + a, v);
-            }
-            OpCode::SetGlobal => {
-                let key = proto.constants[instr.bx() as usize];
-                let v = reg(state, base, a);
-                let g = Value::GcRef(state.global.globals);
-                index_set(state, g, key, v, &proto, cur_pc)?;
-            }
-            OpCode::GetTable => {
-                let t = reg(state, base, instr.b() as usize);
-                let k = rk(state, &proto, base, instr.c());
-                let v = index_get(state, t, k, &proto, cur_pc)?;
-                set_reg(state, base + a, v);
-            }
-            OpCode::SetTable => {
-                let t = reg(state, base, a);
-                let k = rk(state, &proto, base, instr.b());
-                let v = rk(state, &proto, base, instr.c());
-                index_set(state, t, k, v, &proto, cur_pc)?;
-            }
-            OpCode::NewTable => {
-                let narray = fb2int(instr.b());
-                let nhash = fb2int(instr.c());
-                let h = state
-                    .global
-                    .heap
-                    .alloc_table(Table::with_capacity(narray, nhash));
-                set_reg(state, base + a, Value::GcRef(h));
-            }
-            OpCode::SelfOp => {
-                let t = reg(state, base, instr.b() as usize);
-                set_reg(state, base + a + 1, t);
-                let k = rk(state, &proto, base, instr.c());
-                let v = index_get(state, t, k, &proto, cur_pc)?;
-                set_reg(state, base + a, v);
-            }
-            OpCode::Add | OpCode::Sub | OpCode::Mul | OpCode::Div | OpCode::Mod | OpCode::Pow => {
-                let b = rk(state, &proto, base, instr.b());
-                let c = rk(state, &proto, base, instr.c());
-                let v = arith(state, op, b, c, &proto, cur_pc)?;
-                set_reg(state, base + a, v);
-            }
-            OpCode::Unm => {
-                let b = reg(state, base, instr.b() as usize);
-                let v = match tonum(state, b) {
-                    Some(n) => Value::Number(-n),
-                    None => {
-                        let mm = get_metamethod(state, b, b"__unm");
-                        if matches!(mm, Value::Nil) {
-                            return Err(arith_err(state, &proto, cur_pc, b));
+                OpCode::LoadBool => {
+                    set_reg(state, base + a, Value::Boolean(instr.b() != 0));
+                    if instr.c() != 0 {
+                        pc += 1;
+                    }
+                }
+                OpCode::LoadNil => {
+                    let b = instr.b() as usize;
+                    for r in a..=b {
+                        set_reg(state, base + r, Value::Nil);
+                    }
+                }
+                OpCode::GetUpval => {
+                    let v = upval_get(state, &upvals[instr.b() as usize]);
+                    set_reg(state, base + a, v);
+                }
+                OpCode::SetUpval => {
+                    let v = reg(state, base, a);
+                    upval_set(state, &upvals[instr.b() as usize], v);
+                }
+                OpCode::GetGlobal => {
+                    let key = proto.constants[instr.bx() as usize];
+                    let g = Value::GcRef(state.global.globals);
+                    let v = index_get(state, g, key, &proto, cur_pc)?;
+                    set_reg(state, base + a, v);
+                }
+                OpCode::SetGlobal => {
+                    let key = proto.constants[instr.bx() as usize];
+                    let v = reg(state, base, a);
+                    let g = Value::GcRef(state.global.globals);
+                    index_set(state, g, key, v, &proto, cur_pc)?;
+                }
+                OpCode::GetTable => {
+                    let t = reg(state, base, instr.b() as usize);
+                    let k = rk(state, &proto, base, instr.c());
+                    let v = index_get(state, t, k, &proto, cur_pc)?;
+                    set_reg(state, base + a, v);
+                }
+                OpCode::SetTable => {
+                    let t = reg(state, base, a);
+                    let k = rk(state, &proto, base, instr.b());
+                    let v = rk(state, &proto, base, instr.c());
+                    index_set(state, t, k, v, &proto, cur_pc)?;
+                }
+                OpCode::NewTable => {
+                    let narray = fb2int(instr.b());
+                    let nhash = fb2int(instr.c());
+                    let h = state
+                        .global
+                        .heap
+                        .alloc_table(Table::with_capacity(narray, nhash));
+                    set_reg(state, base + a, Value::GcRef(h));
+                }
+                OpCode::SelfOp => {
+                    let t = reg(state, base, instr.b() as usize);
+                    set_reg(state, base + a + 1, t);
+                    let k = rk(state, &proto, base, instr.c());
+                    let v = index_get(state, t, k, &proto, cur_pc)?;
+                    set_reg(state, base + a, v);
+                }
+                OpCode::Add
+                | OpCode::Sub
+                | OpCode::Mul
+                | OpCode::Div
+                | OpCode::Mod
+                | OpCode::Pow => {
+                    let b = rk(state, &proto, base, instr.b());
+                    let c = rk(state, &proto, base, instr.c());
+                    let v = arith(state, op, b, c, &proto, cur_pc)?;
+                    set_reg(state, base + a, v);
+                }
+                OpCode::Unm => {
+                    let b = reg(state, base, instr.b() as usize);
+                    let v = match tonum(state, b) {
+                        Some(n) => Value::Number(-n),
+                        None => {
+                            let mm = get_metamethod(state, b, b"__unm");
+                            if matches!(mm, Value::Nil) {
+                                return Err(arith_err(state, &proto, cur_pc, b));
+                            }
+                            first(call(state, mm, &[b, b])?)
                         }
-                        first(call(state, mm, &[b, b])?)
-                    }
-                };
-                set_reg(state, base + a, v);
-            }
-            OpCode::Not => {
-                let b = reg(state, base, instr.b() as usize);
-                set_reg(state, base + a, Value::Boolean(!b.is_truthy()));
-            }
-            OpCode::Len => {
-                let b = reg(state, base, instr.b() as usize);
-                let v = len_op(state, b, &proto, cur_pc)?;
-                set_reg(state, base + a, v);
-            }
-            OpCode::Concat => {
-                let bb = instr.b() as usize;
-                let cc = instr.c() as usize;
-                // 右結合で R(B)..R(B+1)..R(C) を連結。
-                let mut acc = reg(state, base, cc);
-                let mut i = cc;
-                while i > bb {
-                    i -= 1;
-                    let left = reg(state, base, i);
-                    acc = concat_two(state, left, acc, &proto, cur_pc)?;
-                }
-                set_reg(state, base + a, acc);
-            }
-            OpCode::Jmp => {
-                pc = (pc as i32 + instr.sbx()) as usize;
-            }
-            OpCode::Eq => {
-                let b = rk(state, &proto, base, instr.b());
-                let c = rk(state, &proto, base, instr.c());
-                let eq = values_equal(state, b, c)?;
-                if eq != (a != 0) {
-                    pc += 1;
-                }
-            }
-            OpCode::Lt => {
-                let b = rk(state, &proto, base, instr.b());
-                let c = rk(state, &proto, base, instr.c());
-                let lt = less_than(state, b, c, &proto, cur_pc)?;
-                if lt != (a != 0) {
-                    pc += 1;
-                }
-            }
-            OpCode::Le => {
-                let b = rk(state, &proto, base, instr.b());
-                let c = rk(state, &proto, base, instr.c());
-                let le = less_equal(state, b, c, &proto, cur_pc)?;
-                if le != (a != 0) {
-                    pc += 1;
-                }
-            }
-            OpCode::Test => {
-                let ra = reg(state, base, a);
-                if ra.is_truthy() != (instr.c() != 0) {
-                    pc += 1;
-                }
-            }
-            OpCode::TestSet => {
-                let rb = reg(state, base, instr.b() as usize);
-                if rb.is_truthy() == (instr.c() != 0) {
-                    set_reg(state, base + a, rb);
-                } else {
-                    pc += 1;
-                }
-            }
-            OpCode::Call => {
-                let nargs = if instr.b() == 0 {
-                    top - (base + a + 1)
-                } else {
-                    instr.b() as usize - 1
-                };
-                let func = reg(state, base, a);
-                let mut callargs = Vec::with_capacity(nargs);
-                for i in 0..nargs {
-                    callargs.push(reg(state, base, a + 1 + i));
-                }
-                let results = call(state, func, &callargs)?;
-                let want = if instr.c() == 0 {
-                    results.len()
-                } else {
-                    instr.c() as usize - 1
-                };
-                for i in 0..want {
-                    set_reg(state, base + a + i, results.get(i).copied().unwrap_or(Value::Nil));
-                }
-                if instr.c() == 0 {
-                    top = base + a + results.len();
-                } else {
-                    top = base + proto.max_stack_size as usize;
-                }
-            }
-            OpCode::TailCall => {
-                let nargs = if instr.b() == 0 {
-                    top - (base + a + 1)
-                } else {
-                    instr.b() as usize - 1
-                };
-                let func = reg(state, base, a);
-                let mut callargs = Vec::with_capacity(nargs);
-                for i in 0..nargs {
-                    callargs.push(reg(state, base, a + 1 + i));
-                }
-                // 現フレームの open upvalue を閉じてからフレームを明け渡す。
-                close_upvals(state, &mut open, base);
-
-                // 呼び先が Lua クロージャなら **フレームを再利用** して 'reenter（真の TCO）。
-                if let Value::GcRef(GcHandle::Closure(k)) = func
-                    && let Some(Closure::Lua(lc)) = state.global.heap.get_closure(k)
-                {
-                    let new_proto = lc.proto().clone();
-                    let new_upvals = lc.upvalues().to_vec();
-                    let nparams = new_proto.num_params as usize;
-                    let maxstack = new_proto.max_stack_size as usize;
-                    let need = base + maxstack.max(nparams);
-
-                    // フレーム領域を新関数のレジスタ数に合わせて調整。
-                    if state.stack.len() < need {
-                        state.stack.resize(need, Value::Nil);
-                    } else {
-                        state.stack.truncate(need);
-                    }
-                    // 固定引数を配置し、余りのレジスタを nil で初期化。
-                    for i in 0..nparams {
-                        state.stack[base + i] = callargs.get(i).copied().unwrap_or(Value::Nil);
-                    }
-                    for i in nparams..(need - base) {
-                        state.stack[base + i] = Value::Nil;
-                    }
-                    varargs = if new_proto.is_vararg && callargs.len() > nparams {
-                        callargs[nparams..].to_vec()
-                    } else {
-                        Vec::new()
                     };
-                    proto = new_proto;
-                    upvals = new_upvals;
-                    continue 'reenter;
+                    set_reg(state, base + a, v);
                 }
-
-                // ネイティブ関数 / `__call`: 通常呼び出しで結果をそのまま返す。
-                let results = call(state, func, &callargs)?;
-                return Ok(results);
-            }
-            OpCode::Return => {
-                let n = if instr.b() == 0 {
-                    top - (base + a)
-                } else {
-                    instr.b() as usize - 1
-                };
-                let mut rets = Vec::with_capacity(n);
-                for i in 0..n {
-                    rets.push(reg(state, base, a + i));
+                OpCode::Not => {
+                    let b = reg(state, base, instr.b() as usize);
+                    set_reg(state, base + a, Value::Boolean(!b.is_truthy()));
                 }
-                close_upvals(state, &mut open, base);
-                return Ok(rets);
-            }
-            OpCode::ForPrep => {
-                let init = num_for(state, base, a, "initial", &proto, cur_pc)?;
-                let _limit = num_for(state, base, a + 1, "limit", &proto, cur_pc)?;
-                let step = num_for(state, base, a + 2, "step", &proto, cur_pc)?;
-                set_reg(state, base + a, Value::Number(init - step));
-                pc = (pc as i32 + instr.sbx()) as usize;
-            }
-            OpCode::ForLoop => {
-                let idx = num_at(state, base, a) + num_at(state, base, a + 2);
-                let limit = num_at(state, base, a + 1);
-                let step = num_at(state, base, a + 2);
-                let cont = if step >= 0.0 { idx <= limit } else { idx >= limit };
-                if cont {
-                    set_reg(state, base + a, Value::Number(idx));
-                    set_reg(state, base + a + 3, Value::Number(idx));
+                OpCode::Len => {
+                    let b = reg(state, base, instr.b() as usize);
+                    let v = len_op(state, b, &proto, cur_pc)?;
+                    set_reg(state, base + a, v);
+                }
+                OpCode::Concat => {
+                    let bb = instr.b() as usize;
+                    let cc = instr.c() as usize;
+                    // 右結合で R(B)..R(B+1)..R(C) を連結。
+                    let mut acc = reg(state, base, cc);
+                    let mut i = cc;
+                    while i > bb {
+                        i -= 1;
+                        let left = reg(state, base, i);
+                        acc = concat_two(state, left, acc, &proto, cur_pc)?;
+                    }
+                    set_reg(state, base + a, acc);
+                }
+                OpCode::Jmp => {
                     pc = (pc as i32 + instr.sbx()) as usize;
                 }
-            }
-            OpCode::TForLoop => {
-                let func = reg(state, base, a);
-                let s = reg(state, base, a + 1);
-                let ctrl = reg(state, base, a + 2);
-                let nresults = instr.c() as usize;
-                let results = call(state, func, &[s, ctrl])?;
-                for i in 0..nresults {
-                    set_reg(
-                        state,
-                        base + a + 3 + i,
-                        results.get(i).copied().unwrap_or(Value::Nil),
-                    );
-                }
-                let first_res = reg(state, base, a + 3);
-                if !matches!(first_res, Value::Nil) {
-                    set_reg(state, base + a + 2, first_res);
-                } else {
-                    pc += 1;
-                }
-            }
-            OpCode::SetList => {
-                let n = if instr.b() == 0 {
-                    top - (base + a + 1)
-                } else {
-                    instr.b() as usize
-                };
-                let mut block = instr.c() as usize;
-                if block == 0 {
-                    // 大きな C は次の命令ワードに格納される。
-                    block = proto.code[pc].raw() as usize;
-                    pc += 1;
-                }
-                let tval = reg(state, base, a);
-                let tk = match tval {
-                    Value::GcRef(GcHandle::Table(k)) => k,
-                    _ => return Err(err_at(state, &proto, cur_pc, "SETLIST on non-table".to_string())),
-                };
-                for i in 1..=n {
-                    let idx = (block - 1) * LFIELDS_PER_FLUSH as usize + i;
-                    let v = reg(state, base, a + i);
-                    if let Some(t) = state.global.heap.get_table_mut(tk) {
-                        let _ = t.set(Value::Number(idx as f64), v);
+                OpCode::Eq => {
+                    let b = rk(state, &proto, base, instr.b());
+                    let c = rk(state, &proto, base, instr.c());
+                    let eq = values_equal(state, b, c)?;
+                    if eq != (a != 0) {
+                        pc += 1;
                     }
                 }
-                top = base + proto.max_stack_size as usize;
-            }
-            OpCode::Close => {
-                close_upvals(state, &mut open, base + a);
-            }
-            OpCode::Closure => {
-                let child = proto.protos[instr.bx() as usize].clone();
-                let nup = child.num_upvalues as usize;
-                let mut newc = LuaClosure::new(child);
-                for _ in 0..nup {
-                    let pseudo = proto.code[pc];
-                    pc += 1;
-                    match pseudo.opcode() {
-                        Some(OpCode::Move) => {
-                            let abs = base + pseudo.b() as usize;
-                            let uv = find_or_create_upval(&mut open, abs);
-                            newc.push_upvalue(uv);
+                OpCode::Lt => {
+                    let b = rk(state, &proto, base, instr.b());
+                    let c = rk(state, &proto, base, instr.c());
+                    let lt = less_than(state, b, c, &proto, cur_pc)?;
+                    if lt != (a != 0) {
+                        pc += 1;
+                    }
+                }
+                OpCode::Le => {
+                    let b = rk(state, &proto, base, instr.b());
+                    let c = rk(state, &proto, base, instr.c());
+                    let le = less_equal(state, b, c, &proto, cur_pc)?;
+                    if le != (a != 0) {
+                        pc += 1;
+                    }
+                }
+                OpCode::Test => {
+                    let ra = reg(state, base, a);
+                    if ra.is_truthy() != (instr.c() != 0) {
+                        pc += 1;
+                    }
+                }
+                OpCode::TestSet => {
+                    let rb = reg(state, base, instr.b() as usize);
+                    if rb.is_truthy() == (instr.c() != 0) {
+                        set_reg(state, base + a, rb);
+                    } else {
+                        pc += 1;
+                    }
+                }
+                OpCode::Call => {
+                    let nargs = if instr.b() == 0 {
+                        top - (base + a + 1)
+                    } else {
+                        instr.b() as usize - 1
+                    };
+                    let func = reg(state, base, a);
+                    let mut callargs = Vec::with_capacity(nargs);
+                    for i in 0..nargs {
+                        callargs.push(reg(state, base, a + 1 + i));
+                    }
+                    let results = call(state, func, &callargs)?;
+                    let want = if instr.c() == 0 {
+                        results.len()
+                    } else {
+                        instr.c() as usize - 1
+                    };
+                    for i in 0..want {
+                        set_reg(
+                            state,
+                            base + a + i,
+                            results.get(i).copied().unwrap_or(Value::Nil),
+                        );
+                    }
+                    if instr.c() == 0 {
+                        top = base + a + results.len();
+                    } else {
+                        top = base + proto.max_stack_size as usize;
+                    }
+                }
+                OpCode::TailCall => {
+                    let nargs = if instr.b() == 0 {
+                        top - (base + a + 1)
+                    } else {
+                        instr.b() as usize - 1
+                    };
+                    let func = reg(state, base, a);
+                    let mut callargs = Vec::with_capacity(nargs);
+                    for i in 0..nargs {
+                        callargs.push(reg(state, base, a + 1 + i));
+                    }
+                    // 現フレームの open upvalue を閉じてからフレームを明け渡す。
+                    close_upvals(state, &mut open, base);
+
+                    // 呼び先が Lua クロージャなら **フレームを再利用** して 'reenter（真の TCO）。
+                    if let Value::GcRef(GcHandle::Closure(k)) = func
+                        && let Some(Closure::Lua(lc)) = state.global.heap.get_closure(k)
+                    {
+                        let new_proto = lc.proto().clone();
+                        let new_upvals = lc.upvalues().to_vec();
+                        let nparams = new_proto.num_params as usize;
+                        let maxstack = new_proto.max_stack_size as usize;
+                        let need = base + maxstack.max(nparams);
+
+                        // フレーム領域を新関数のレジスタ数に合わせて調整。
+                        if state.stack.len() < need {
+                            state.stack.resize(need, Value::Nil);
+                        } else {
+                            state.stack.truncate(need);
                         }
-                        Some(OpCode::GetUpval) => {
-                            let uv = upvals[pseudo.b() as usize].clone();
-                            newc.push_upvalue(uv);
+                        // 固定引数を配置し、余りのレジスタを nil で初期化。
+                        for i in 0..nparams {
+                            state.stack[base + i] = callargs.get(i).copied().unwrap_or(Value::Nil);
                         }
+                        for i in nparams..(need - base) {
+                            state.stack[base + i] = Value::Nil;
+                        }
+                        varargs = if new_proto.is_vararg && callargs.len() > nparams {
+                            callargs[nparams..].to_vec()
+                        } else {
+                            Vec::new()
+                        };
+                        proto = new_proto;
+                        upvals = new_upvals;
+                        continue 'reenter;
+                    }
+
+                    // ネイティブ関数 / `__call`: 通常呼び出しで結果をそのまま返す。
+                    let results = call(state, func, &callargs)?;
+                    return Ok(results);
+                }
+                OpCode::Return => {
+                    let n = if instr.b() == 0 {
+                        top - (base + a)
+                    } else {
+                        instr.b() as usize - 1
+                    };
+                    let mut rets = Vec::with_capacity(n);
+                    for i in 0..n {
+                        rets.push(reg(state, base, a + i));
+                    }
+                    close_upvals(state, &mut open, base);
+                    return Ok(rets);
+                }
+                OpCode::ForPrep => {
+                    let init = num_for(state, base, a, "initial", &proto, cur_pc)?;
+                    let _limit = num_for(state, base, a + 1, "limit", &proto, cur_pc)?;
+                    let step = num_for(state, base, a + 2, "step", &proto, cur_pc)?;
+                    set_reg(state, base + a, Value::Number(init - step));
+                    pc = (pc as i32 + instr.sbx()) as usize;
+                }
+                OpCode::ForLoop => {
+                    let idx = num_at(state, base, a) + num_at(state, base, a + 2);
+                    let limit = num_at(state, base, a + 1);
+                    let step = num_at(state, base, a + 2);
+                    let cont = if step >= 0.0 {
+                        idx <= limit
+                    } else {
+                        idx >= limit
+                    };
+                    if cont {
+                        set_reg(state, base + a, Value::Number(idx));
+                        set_reg(state, base + a + 3, Value::Number(idx));
+                        pc = (pc as i32 + instr.sbx()) as usize;
+                    }
+                }
+                OpCode::TForLoop => {
+                    let func = reg(state, base, a);
+                    let s = reg(state, base, a + 1);
+                    let ctrl = reg(state, base, a + 2);
+                    let nresults = instr.c() as usize;
+                    let results = call(state, func, &[s, ctrl])?;
+                    for i in 0..nresults {
+                        set_reg(
+                            state,
+                            base + a + 3 + i,
+                            results.get(i).copied().unwrap_or(Value::Nil),
+                        );
+                    }
+                    let first_res = reg(state, base, a + 3);
+                    if !matches!(first_res, Value::Nil) {
+                        set_reg(state, base + a + 2, first_res);
+                    } else {
+                        pc += 1;
+                    }
+                }
+                OpCode::SetList => {
+                    let n = if instr.b() == 0 {
+                        top - (base + a + 1)
+                    } else {
+                        instr.b() as usize
+                    };
+                    let mut block = instr.c() as usize;
+                    if block == 0 {
+                        // 大きな C は次の命令ワードに格納される。
+                        block = proto.code[pc].raw() as usize;
+                        pc += 1;
+                    }
+                    let tval = reg(state, base, a);
+                    let tk = match tval {
+                        Value::GcRef(GcHandle::Table(k)) => k,
                         _ => {
                             return Err(err_at(
                                 state,
                                 &proto,
                                 cur_pc,
-                                "malformed CLOSURE upvalue capture".to_string(),
+                                "SETLIST on non-table".to_string(),
                             ));
                         }
+                    };
+                    for i in 1..=n {
+                        let idx = (block - 1) * LFIELDS_PER_FLUSH as usize + i;
+                        let v = reg(state, base, a + i);
+                        if let Some(t) = state.global.heap.get_table_mut(tk) {
+                            let _ = t.set(Value::Number(idx as f64), v);
+                        }
+                    }
+                    top = base + proto.max_stack_size as usize;
+                }
+                OpCode::Close => {
+                    close_upvals(state, &mut open, base + a);
+                }
+                OpCode::Closure => {
+                    let child = proto.protos[instr.bx() as usize].clone();
+                    let nup = child.num_upvalues as usize;
+                    let mut newc = LuaClosure::new(child);
+                    for _ in 0..nup {
+                        let pseudo = proto.code[pc];
+                        pc += 1;
+                        match pseudo.opcode() {
+                            Some(OpCode::Move) => {
+                                let abs = base + pseudo.b() as usize;
+                                let uv = find_or_create_upval(&mut open, abs);
+                                newc.push_upvalue(uv);
+                            }
+                            Some(OpCode::GetUpval) => {
+                                let uv = upvals[pseudo.b() as usize].clone();
+                                newc.push_upvalue(uv);
+                            }
+                            _ => {
+                                return Err(err_at(
+                                    state,
+                                    &proto,
+                                    cur_pc,
+                                    "malformed CLOSURE upvalue capture".to_string(),
+                                ));
+                            }
+                        }
+                    }
+                    let h = state.global.heap.alloc_closure(Closure::Lua(newc));
+                    set_reg(state, base + a, Value::GcRef(h));
+                }
+                OpCode::Vararg => {
+                    let want = if instr.b() == 0 {
+                        varargs.len()
+                    } else {
+                        instr.b() as usize - 1
+                    };
+                    for i in 0..want {
+                        set_reg(
+                            state,
+                            base + a + i,
+                            varargs.get(i).copied().unwrap_or(Value::Nil),
+                        );
+                    }
+                    if instr.b() == 0 {
+                        top = base + a + varargs.len();
                     }
                 }
-                let h = state.global.heap.alloc_closure(Closure::Lua(newc));
-                set_reg(state, base + a, Value::GcRef(h));
-            }
-            OpCode::Vararg => {
-                let want = if instr.b() == 0 {
-                    varargs.len()
-                } else {
-                    instr.b() as usize - 1
-                };
-                for i in 0..want {
-                    set_reg(
-                        state,
-                        base + a + i,
-                        varargs.get(i).copied().unwrap_or(Value::Nil),
-                    );
-                }
-                if instr.b() == 0 {
-                    top = base + a + varargs.len();
-                }
-            }
             }
         }
     }
@@ -681,9 +707,11 @@ fn close_upvals(state: &LuaState, open: &mut Vec<(usize, Upvalue)>, from_abs: us
 fn tonum(state: &LuaState, v: Value) -> Option<f64> {
     match v {
         Value::Number(n) => Some(n),
-        Value::GcRef(GcHandle::Str(k)) => {
-            state.global.heap.get_str(k).and_then(|s| str_to_number(s.as_bytes()))
-        }
+        Value::GcRef(GcHandle::Str(k)) => state
+            .global
+            .heap
+            .get_str(k)
+            .and_then(|s| str_to_number(s.as_bytes())),
         _ => None,
     }
 }
@@ -763,7 +791,9 @@ fn concat_two(
 fn stringable(state: &LuaState, v: Value) -> Option<Vec<u8>> {
     match v {
         Value::Number(n) => Some(number_to_string(n).into_bytes()),
-        Value::GcRef(GcHandle::Str(k)) => state.global.heap.get_str(k).map(|s| s.as_bytes().to_vec()),
+        Value::GcRef(GcHandle::Str(k)) => {
+            state.global.heap.get_str(k).map(|s| s.as_bytes().to_vec())
+        }
         _ => None,
     }
 }
@@ -776,7 +806,12 @@ fn len_op(state: &mut LuaState, v: Value, proto: &Proto, pc: usize) -> LuaResult
         }
         Value::GcRef(GcHandle::Table(k)) => {
             // Lua 5.1: テーブルの `#` はメタメソッドを参照せず border を返す。
-            let len = state.global.heap.get_table(k).map(|t| t.length()).unwrap_or(0);
+            let len = state
+                .global
+                .heap
+                .get_table(k)
+                .map(|t| t.length())
+                .unwrap_or(0);
             Ok(Value::Number(len as f64))
         }
         _ => {
@@ -891,7 +926,12 @@ fn index_get(
 ) -> LuaResult<Value> {
     for _ in 0..MAXTAGLOOP {
         if let Value::GcRef(GcHandle::Table(k)) = t {
-            let raw = state.global.heap.get_table(k).map(|tb| tb.get(&key)).unwrap_or(Value::Nil);
+            let raw = state
+                .global
+                .heap
+                .get_table(k)
+                .map(|tb| tb.get(&key))
+                .unwrap_or(Value::Nil);
             if !matches!(raw, Value::Nil) {
                 return Ok(raw);
             }
@@ -914,7 +954,12 @@ fn index_get(
             t = mm;
         }
     }
-    Err(err_at(state, proto, pc, "'__index' chain too long; possible loop".to_string()))
+    Err(err_at(
+        state,
+        proto,
+        pc,
+        "'__index' chain too long; possible loop".to_string(),
+    ))
 }
 
 fn index_set(
@@ -957,7 +1002,12 @@ fn index_set(
             t = mm;
         }
     }
-    Err(err_at(state, proto, pc, "'__newindex' chain too long; possible loop".to_string()))
+    Err(err_at(
+        state,
+        proto,
+        pc,
+        "'__newindex' chain too long; possible loop".to_string(),
+    ))
 }
 
 fn raw_set(
@@ -991,10 +1041,14 @@ fn raw_set(
 
 fn metatable_of(state: &LuaState, v: Value) -> Option<crate::gc::TableKey> {
     let mt = match v {
-        Value::GcRef(GcHandle::Table(k)) => state.global.heap.get_table(k).and_then(|t| t.metatable()),
-        Value::GcRef(GcHandle::Userdata(k)) => {
-            state.global.heap.get_userdata(k).and_then(|u| u.metatable())
+        Value::GcRef(GcHandle::Table(k)) => {
+            state.global.heap.get_table(k).and_then(|t| t.metatable())
         }
+        Value::GcRef(GcHandle::Userdata(k)) => state
+            .global
+            .heap
+            .get_userdata(k)
+            .and_then(|u| u.metatable()),
         // 文字列は型ごとの共有メタテーブル（`global_State.string_metatable`）を参照する。
         // 本体の登録は lua-stdlib が string ライブラリ初期化時に行う。
         Value::GcRef(GcHandle::Str(_)) => state.global.string_metatable,
@@ -1012,7 +1066,12 @@ fn get_metamethod(state: &mut LuaState, v: Value, event: &[u8]) -> Value {
         return Value::Nil;
     };
     let key = Value::GcRef(state.global.heap.intern_str(event));
-    state.global.heap.get_table(mtk).map(|t| t.get(&key)).unwrap_or(Value::Nil)
+    state
+        .global
+        .heap
+        .get_table(mtk)
+        .map(|t| t.get(&key))
+        .unwrap_or(Value::Nil)
 }
 
 // ============================================================================
@@ -1109,19 +1168,40 @@ fn short_src(source: Option<&str>) -> String {
 }
 
 fn type_err(state: &mut LuaState, action: &str, v: Value) -> LuaError {
-    rt_err(state, format!("attempt to {action} a {} value", v.type_of().name()))
+    rt_err(
+        state,
+        format!("attempt to {action} a {} value", v.type_of().name()),
+    )
 }
 
 fn arith_err(state: &mut LuaState, proto: &Proto, pc: usize, v: Value) -> LuaError {
-    err_at(state, proto, pc, format!("attempt to perform arithmetic on a {} value", v.type_of().name()))
+    err_at(
+        state,
+        proto,
+        pc,
+        format!(
+            "attempt to perform arithmetic on a {} value",
+            v.type_of().name()
+        ),
+    )
 }
 
 fn concat_err(state: &mut LuaState, proto: &Proto, pc: usize, v: Value) -> LuaError {
-    err_at(state, proto, pc, format!("attempt to concatenate a {} value", v.type_of().name()))
+    err_at(
+        state,
+        proto,
+        pc,
+        format!("attempt to concatenate a {} value", v.type_of().name()),
+    )
 }
 
 fn index_err(state: &mut LuaState, proto: &Proto, pc: usize, v: Value) -> LuaError {
-    err_at(state, proto, pc, format!("attempt to index a {} value", v.type_of().name()))
+    err_at(
+        state,
+        proto,
+        pc,
+        format!("attempt to index a {} value", v.type_of().name()),
+    )
 }
 
 fn cmp_err(state: &mut LuaState, proto: &Proto, pc: usize, a: Value, b: Value) -> LuaError {

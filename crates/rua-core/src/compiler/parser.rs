@@ -668,8 +668,8 @@ impl<'a> Parser<'a> {
         let mut fields = Vec::new();
         while !self.check(&Token::RBrace) {
             // NAME の直後が '=' なら名前付きフィールド。借用が重ならないよう先に判定する。
-            let is_named = matches!(self.tok.tok, Token::Name(_))
-                && *self.lookahead()? == Token::Assign;
+            let is_named =
+                matches!(self.tok.tok, Token::Name(_)) && *self.lookahead()? == Token::Assign;
             if self.check(&Token::LBracket) {
                 // [exp] = exp
                 self.advance()?;
@@ -826,7 +826,11 @@ mod tests {
         let b = parse_ok("return 2 ^ 3 ^ 2");
         match &b.stmts[0].kind {
             StmtKind::Return(es) => match &es[0].kind {
-                ExprKind::BinOp { op: BinOp::Pow, rhs, .. } => {
+                ExprKind::BinOp {
+                    op: BinOp::Pow,
+                    rhs,
+                    ..
+                } => {
                     assert!(matches!(rhs.kind, ExprKind::BinOp { op: BinOp::Pow, .. }));
                 }
                 other => panic!("unexpected: {other:?}"),
@@ -841,8 +845,18 @@ mod tests {
         let b = parse_ok("return 'a' .. 'b' .. 'c'");
         match &b.stmts[0].kind {
             StmtKind::Return(es) => match &es[0].kind {
-                ExprKind::BinOp { op: BinOp::Concat, rhs, .. } => {
-                    assert!(matches!(rhs.kind, ExprKind::BinOp { op: BinOp::Concat, .. }));
+                ExprKind::BinOp {
+                    op: BinOp::Concat,
+                    rhs,
+                    ..
+                } => {
+                    assert!(matches!(
+                        rhs.kind,
+                        ExprKind::BinOp {
+                            op: BinOp::Concat,
+                            ..
+                        }
+                    ));
                 }
                 other => panic!("unexpected: {other:?}"),
             },
@@ -868,10 +882,7 @@ mod tests {
         let b = parse_ok("return -2 ^ 2");
         match &b.stmts[0].kind {
             StmtKind::Return(es) => {
-                assert!(matches!(
-                    es[0].kind,
-                    ExprKind::UnOp { op: UnOp::Neg, .. }
-                ));
+                assert!(matches!(es[0].kind, ExprKind::UnOp { op: UnOp::Neg, .. }));
             }
             other => panic!("unexpected: {other:?}"),
         }

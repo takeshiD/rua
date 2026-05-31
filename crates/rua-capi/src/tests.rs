@@ -137,7 +137,11 @@ fn runtime_error_pcall() {
         let mut len = 0;
         let p = lua_tolstring(l, -1, &mut len);
         let msg = std::slice::from_raw_parts(p as *const u8, len);
-        assert!(msg.ends_with(b"boom"), "got: {:?}", String::from_utf8_lossy(msg));
+        assert!(
+            msg.ends_with(b"boom"),
+            "got: {:?}",
+            String::from_utf8_lossy(msg)
+        );
         lua_close(l);
     }
 }
@@ -283,7 +287,8 @@ fn lua_calls_c_function_error() {
         let p = lua_tolstring(l, -1, &mut len);
         let msg = std::slice::from_raw_parts(p as *const u8, len);
         assert!(
-            msg.windows(b"error from C via Lua".len()).any(|w| w == b"error from C via Lua"),
+            msg.windows(b"error from C via Lua".len())
+                .any(|w| w == b"error from C via Lua"),
             "got: {:?}",
             String::from_utf8_lossy(msg)
         );
