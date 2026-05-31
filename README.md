@@ -194,21 +194,49 @@ cargo +nightly fuzz run compile_run  -- -max_total_time=60
 ## Embedding in Rust
 
 ```rust
-use rua_core::{LuaState, stdlib};
+use rua_core::api::Lua;
 
-let mut state = LuaState::new();
-stdlib::open_libs(&mut state);
+let mut lua = Lua::new(); // opens standard libraries
 
-// Register a native function
-state.register("add", |state| {
-    let a = state.check_number(1)?;
-    let b = state.check_number(2)?;
-    state.push_number(a + b);
-    Ok(1)
-});
+// Evaluate inline Lua, get the result as a Rust value
+let n: f64 = lua.load("return 1 + 2").eval().unwrap();
+assert_eq!(n, 3.0);
 
-// Execute Lua code
-state.do_string("print(add(1, 2))")?;
+// Pass a Rust value into Lua via a global
+lua.set_global("base", 10i64).unwrap();
+let result: f64 = lua.load("return base * 7").eval().unwrap();
+assert_eq!(result, 70.0);
+
+// Register a Rust function callable from Lua
+use rua_core::state::LuaState;
+use rua_core::error::LuaResult;
+use rua_core::stdlib::aux;
+use rua_core::value::Value;
+
+fn add(state: &mut LuaState) -> LuaResult<i32> {
+    let args = aux::args_vec(state);
+    let a = aux::check_number(state, &args, 0, "add")?;
+    let b = aux::check_number(state, &args, 1, "add")?;
+    aux::ret(state, vec![Value::Number(a + b)])
+}
+
+lua.register_fn("add", add).unwrap();
+let sum: f64 = lua.load("return add(3, 4)").eval().unwrap();
+assert_eq!(sum, 7.0);
+```
+
+See [`crates/rua-core/examples/`](crates/rua-core/examples/) for runnable examples:
+
+| File | What it shows |
+|------|---------------|
+| [`01_basic_eval.rs`](crates/rua-core/examples/01_basic_eval.rs) | Evaluate Lua expressions, use globals, catch errors |
+| [`02_load_file.rs`](crates/rua-core/examples/02_load_file.rs) | Load and run an external `.lua` file, exchange values |
+| [`03_rust_functions.rs`](crates/rua-core/examples/03_rust_functions.rs) | Register Rust functions callable from Lua; Lua function called from Rust |
+
+```bash
+cargo run -p rua-core --example 01_basic_eval
+cargo run -p rua-core --example 02_load_file
+cargo run -p rua-core --example 03_rust_functions
 ```
 
 ## Embedding in C / C++
