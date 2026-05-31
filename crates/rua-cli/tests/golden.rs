@@ -60,7 +60,7 @@ fn collect_into(dir: &Path, out: &mut Vec<PathBuf>) {
 
 /// rua CLI が実際に Lua スクリプトを実行できる状態かをプローブする。
 ///
-/// 一時ファイルに `print("RUA_PROBE_OK")` を書き出して `rua run` し、
+/// 一時ファイルに `print("RUA_PROBE_OK")` を書き出して `rua <file>` し、
 /// stdout がそれと一致し終了コード 0 なら「実行可能（live）」とみなす。
 /// まだ未実装（フェーズ0 スケルトン）なら false。
 fn rua_is_live() -> bool {
@@ -73,7 +73,7 @@ fn rua_is_live() -> bool {
     if std::fs::write(&probe_path, b"print(\"RUA_PROBE_OK\")\n").is_err() {
         return false;
     }
-    let result = Command::new(RUA_BIN).arg("run").arg(&probe_path).output();
+    let result = Command::new(RUA_BIN).arg(&probe_path).output();
     let _ = std::fs::remove_file(&probe_path);
     match result {
         Ok(out) => {
@@ -166,7 +166,6 @@ fn golden_compare() {
 
         // 本家と同じ cwd・相対パスで起動（チャンク名一致 → エラー整形も比較対象になる）。
         let output = match Command::new(RUA_BIN)
-            .arg("run")
             .arg(rel_arg(&dir, script))
             .current_dir(&dir)
             .output()

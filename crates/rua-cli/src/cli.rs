@@ -1,7 +1,7 @@
 //! コマンドライン定義（clap derive）。本家 `lua.c` / `luac.c` のフロントエンド相当。
 //!
-//! 後方互換のため、サブコマンドを省略した `rua <file>` / `rua -` / 引数なし `rua`（REPL）を
-//! 受け付ける（`args_conflicts_with_subcommands` + フラット化したデフォルト引数で表現）。
+//! - `rua` バイナリ … `rua <file>` でスクリプト実行、引数なし `rua` で REPL を起動。
+//! - `ruac` バイナリ … 本家 `luac` 相当のコンパイラ（[`RuacCli`]）。
 //!
 //! # カラースタイル
 //! clap 4 の `styles` で色付きヘルプを提供する。
@@ -24,89 +24,39 @@ fn clap_styles() -> Styles {
         .invalid(AnsiColor::BrightRed.on_default())
 }
 
-const LONG_ABOUT: &str = "\
-rua は Lua 5.1 の Rust 実装インタプリタです。
-本家 PUC-Rio lua5.1 のコマンドライン仕様に概ね準拠しています。
+const RUA_LONG_ABOUT: &str = "\
+rua is a Lua 5.1 interpreter written in Rust.
+It broadly follows the command-line behavior of the reference PUC-Rio lua5.1.
 
-使用例:
-  rua script.lua [args...]   スクリプトを実行（`rua run` と同じ）
-  rua -                      標準入力から読み込んで実行
-  rua                        対話モード（REPL）を起動
+Usage:
+  rua script.lua [args...]   Run a script
+  rua -                      Read from standard input and run
+  rua                        Start the interactive interpreter (REPL)
 
-サブコマンド:
-  rua run    スクリプトを実行
-  rua luac   コンパイル（構文チェック / バイトコード列挙 / チャンク出力）
-  rua repl   対話モードを明示的に起動
-  rua completions <shell>    シェル補完スクリプトを生成";
-
-const RUN_LONG_ABOUT: &str = "\
-Lua スクリプトを実行します。本家 `lua5.1 script.lua` 相当。
-
-スクリプトに渡した追加引数は `arg` テーブルおよびメインチャンクの `...` から
-アクセスできます（本家 lua5.1 と同じ規約）:
-  arg[0]  = スクリプト名
-  arg[1]  = 第1引数（`...` の第1値）
-  arg[2]  = 第2引数（`...` の第2値）
+Script arguments are available through the `arg` table and the `...` of the
+main chunk (same convention as the reference lua5.1):
+  arg[0]  = script name
+  arg[1]  = first argument (first value of `...`)
+  arg[2]  = second argument (second value of `...`)
   ...
 
-例:
-  rua run script.lua
-  rua run script.lua arg1 arg2
-  echo 'print(...)' | rua run -  # 標準入力から実行";
+The compiler is provided as a separate `ruac` command (reference `luac`).
 
-const LUAC_LONG_ABOUT: &str = "\
-Lua ソースをコンパイルします。本家 `luac` 相当。
-
-用途:
-  構文チェックのみ: -p
-  バイトコード列挙: -l（詳細: -ll）
-  コンパイル済みチャンクを出力: -o outfile infile
-  デバッグ情報除去: -s
-
-本家 `luac` との相違点:
-  チャンクの出力フォーマットは rua 独自形式（\\x1bRua マジック）です。
-  `rua run` はこのマジックを自動検出して実行します。
-
-例:
-  rua luac -p script.lua            # 構文チェックのみ（エラーがなければ無出力）
-  rua luac -l script.lua            # バイトコード列挙
-  rua luac -ll script.lua           # バイトコード + 定数表・ローカル・upvalue
-  rua luac -o out.rbc script.lua    # コンパイル済みチャンクを out.rbc へ出力
-  rua luac -s -o out.rbc script.lua # デバッグ情報を除去して出力
-  rua run out.rbc                   # 出力チャンクを実行";
-
-const REPL_LONG_ABOUT: &str = "\
-リッチな対話インタプリタ（REPL）を起動します。
-
-機能:
-  - シンタックスハイライト（キーワード/文字列/数値/コメントを色分け）
-  - Tab 補完（Lua 予約語 + グローバル変数）
-  - 複数行継続（未完ブロックを自動検出して継続プロンプト表示）
-  - 式の自動 return（`1+2` → `3` を表示）
-  - 永続履歴（~/.local/share/rua/history.txt）
-
-操作:
-  式を入力して Enter  式を評価し結果を表示
-  Tab                 補完候補を表示
-  Ctrl-C              現在の入力を破棄
-  Ctrl-D              REPL を終了
-  exit                REPL を終了
-
-例:
-  rua          # 引数なしで REPL 起動
-  rua repl     # 明示的に REPL 起動";
+With no arguments, rua starts a rich interactive interpreter (REPL) with
+syntax highlighting, Tab completion, multi-line continuation, automatic
+`return` for expressions, and persistent history.";
 
 const COMPLETIONS_LONG_ABOUT: &str = "\
-シェル補完スクリプトを標準出力に生成します。
+Generate a shell completion script and write it to standard output.
 
-生成後は各シェルの補完設定に応じて読み込んでください:
+Load the generated script according to your shell's completion setup:
 
   bash:
     rua completions bash >> ~/.bashrc
 
   zsh:
     rua completions zsh > ~/.zfunc/_rua
-    # ~/.zshrc に `fpath=(~/.zfunc $fpath)` と `autoload -U compinit` が必要
+    # ~/.zshrc must contain `fpath=(~/.zfunc $fpath)` and `autoload -U compinit`
 
   fish:
     rua completions fish > ~/.config/fish/completions/rua.fish
@@ -114,36 +64,59 @@ const COMPLETIONS_LONG_ABOUT: &str = "\
   elvish:
     rua completions elvish >> ~/.config/elvish/rc.elv";
 
-/// `rua` のトップレベル CLI。
+const RUAC_LONG_ABOUT: &str = "\
+ruac compiles Lua source. Equivalent to the reference `luac`.
+
+Modes:
+  syntax check only:    -p
+  list bytecode:        -l (verbose: -ll)
+  emit compiled chunk:  -o outfile infile
+  strip debug info:     -s
+
+Differences from the reference `luac`:
+  The compiled chunk format is rua-specific (\\x1bRua magic).
+  `rua` automatically detects this magic and runs it.
+
+Examples:
+  ruac -p script.lua            # syntax check only (no output if OK)
+  ruac -l script.lua            # list bytecode
+  ruac -ll script.lua           # bytecode + constants / locals / upvalues
+  ruac -o out.rbc script.lua    # write the compiled chunk to out.rbc
+  ruac -s -o out.rbc script.lua # strip debug info and write
+  rua out.rbc                   # run the emitted chunk";
+
+/// `rua` インタプリタの CLI。
+///
+/// `rua <file> [args...]` でスクリプト実行、引数なしで REPL を起動する。
+/// 補完生成のみサブコマンド（`rua completions <shell>`）として提供する。
 #[derive(Debug, Parser)]
 #[command(
     name = "rua",
     version,
     about = "Lua 5.1 interpreter written in Rust",
-    long_about = LONG_ABOUT,
+    long_about = RUA_LONG_ABOUT,
     args_conflicts_with_subcommands = true,
     subcommand_negates_reqs = true,
-    disable_help_subcommand = false,
+    disable_help_subcommand = true,
     styles = clap_styles(),
-    after_help = "詳細は `rua <SUBCOMMAND> --help` で確認できます。",
 )]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Option<Command>,
 
-    /// サブコマンド省略時のデフォルト（`rua <file>` / `rua -` / 引数なし）。
+    /// スクリプト実行 / REPL のデフォルト引数（`rua <file>` / `rua -` / 引数なし）。
     #[command(flatten)]
     pub default: DefaultArgs,
 }
 
-/// サブコマンドを省略したときの引数（本家 `lua [script [args]]` 相当）。
+/// `rua <file> [args...]` のデフォルト引数（本家 `lua [script [args]]` 相当）。
 #[derive(Debug, Args)]
 pub struct DefaultArgs {
-    /// 実行する Lua スクリプト。`-` で標準入力。省略時は REPL を起動。
+    /// Lua script to run (`-` for standard input). Starts the REPL when omitted.
     #[arg(value_name = "SCRIPT")]
     pub script: Option<String>,
 
-    /// スクリプトへ渡す引数（`arg` テーブル / メインチャンクの `...`）。
+    /// Arguments passed to the script (`arg` table / `...` of the main chunk).
     #[arg(
         value_name = "ARGS",
         trailing_var_arg = true,
@@ -152,113 +125,84 @@ pub struct DefaultArgs {
     pub args: Vec<String>,
 }
 
-/// サブコマンド。
+/// `rua` のサブコマンド（補完生成のみ）。
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    /// Lua スクリプトを実行する（本家 `lua` 相当）。
-    #[command(long_about = RUN_LONG_ABOUT, after_help = "スクリプト引数は `arg[0]`, `arg[1]`, ... および `...` で参照できます。")]
-    Run(RunArgs),
-
-    /// Lua ソースをコンパイルする（本家 `luac` 相当）。
-    #[command(name = "luac", long_about = LUAC_LONG_ABOUT)]
-    Luac(LuacArgs),
-
-    /// リッチな対話インタプリタ（REPL）を起動する。
-    #[command(long_about = REPL_LONG_ABOUT)]
-    Repl,
-
-    /// シェル補完スクリプトを生成して標準出力へ書き出す。
+    /// Generate a shell completion script on standard output.
     #[command(long_about = COMPLETIONS_LONG_ABOUT)]
     Completions(CompletionsArgs),
-}
-
-/// `rua run` の引数。
-#[derive(Debug, Args)]
-#[command(styles = clap_styles())]
-pub struct RunArgs {
-    /// 実行する Lua スクリプト。`-` で標準入力。
-    #[arg(
-        value_name = "SCRIPT",
-        help = "実行する Lua スクリプト（`-` で標準入力）"
-    )]
-    pub script: String,
-
-    /// スクリプトへ渡す引数（`arg[1]` 以降 / `...` に対応）。
-    #[arg(
-        value_name = "ARGS",
-        trailing_var_arg = true,
-        allow_hyphen_values = true,
-        help = "スクリプトへ渡す引数（`arg[1]` 以降および `...` に対応）"
-    )]
-    pub args: Vec<String>,
-}
-
-/// `rua luac` の引数（本家 `luac` のオプションに寄せる）。
-#[derive(Debug, Args)]
-#[command(styles = clap_styles())]
-pub struct LuacArgs {
-    /// 構文チェックのみ行い、実行・出力はしない（本家 `luac -p`）。
-    ///
-    /// エラーがない場合は何も出力せずに終了します（exit code 0）。
-    #[arg(
-        short = 'p',
-        long = "parse-only",
-        help = "構文チェックのみ行う（出力なし、本家 `luac -p` 相当）",
-        long_help = "構文チェックのみ行い、実行・ファイル出力はしません。\nエラーがなければ無出力で終了します（exit code 0）。\nエラーがあれば stderr に出力し exit code 1 で終了します。"
-    )]
-    pub parse_only: bool,
-
-    /// バイトコードを一覧表示する（本家 `luac -l`）。
-    ///
-    /// 2 回以上指定すると定数表・ローカル変数・upvalue も出力します（`-ll` = `-l -l`）。
-    #[arg(
-        short = 'l',
-        long = "list",
-        action = clap::ArgAction::Count,
-        help = "バイトコードを列挙する（`-ll` で詳細表示、本家 `luac -l` 相当）",
-        long_help = "コンパイル済みバイトコードを本家 `luac -l` 形式で列挙します。\n  -l   命令一覧（アドレス・行番号・ニーモニック・オペランド・コメント）\n  -ll  上記 + 定数表・ローカル変数・upvalue 名の列挙"
-    )]
-    pub list: u8,
-
-    /// コンパイル済みチャンクの出力先ファイル（本家 `luac -o`、既定 `luac.out`）。
-    ///
-    /// 出力形式は rua 独自（`\x1bRua` マジック）です。`rua run` で実行できます。
-    #[arg(
-        short = 'o',
-        long = "output",
-        value_name = "FILE",
-        help = "コンパイル済みチャンクの出力先ファイル（既定: luac.out）",
-        long_help = "コンパイル済みチャンクを指定のファイルへ出力します。\n出力形式は rua 独自形式（マジック \\x1bRua）で、`rua run <file>` で実行できます。\n`-p` を指定した場合は出力しません。"
-    )]
-    pub output: Option<String>,
-
-    /// デバッグ情報（行番号・ローカル名）を取り除く（本家 `luac -s`）。
-    ///
-    /// 出力ファイルのサイズを削減できます。
-    #[arg(
-        short = 's',
-        long = "strip",
-        help = "デバッグ情報（行番号・ローカル名・upvalue 名）を除去する（本家 `luac -s` 相当）"
-    )]
-    pub strip: bool,
-
-    /// 入力ファイル。`-` で標準入力。複数指定可能。
-    #[arg(
-        value_name = "FILES",
-        required = true,
-        help = "入力ファイル（`-` で標準入力）",
-        long_help = "コンパイルする Lua ソースファイル。\n複数指定できます（`-l` と `-p` のみ。チャンク出力 `-o` は単一ファイルのみ）。"
-    )]
-    pub files: Vec<String>,
 }
 
 /// `rua completions` の引数。
 #[derive(Debug, Args)]
 pub struct CompletionsArgs {
-    /// 補完を生成するシェル（bash/zsh/fish/elvish/powershell）。
-    #[arg(
-        value_name = "SHELL",
-        help = "補完を生成するシェル（bash / zsh / fish / elvish / powershell）"
-    )]
+    /// Shell to generate completions for (bash / zsh / fish / elvish / powershell).
+    #[arg(value_name = "SHELL")]
     pub shell: Shell,
+}
+
+/// `ruac` コンパイラの CLI（トップレベル引数 = 本家 `luac` のオプション）。
+#[derive(Debug, Parser)]
+#[command(
+    name = "ruac",
+    version,
+    about = "Lua 5.1 compiler written in Rust (reference `luac`)",
+    long_about = RUAC_LONG_ABOUT,
+    disable_help_subcommand = true,
+    styles = clap_styles(),
+)]
+pub struct RuacCli {
+    /// Check syntax only; do not run or write output (reference `luac -p`).
+    ///
+    /// Exits with code 0 and no output when there are no errors.
+    #[arg(
+        short = 'p',
+        long = "parse-only",
+        help = "Check syntax only (no output, reference `luac -p`)",
+        long_help = "Check syntax only; do not run or write any output file.\nExits with code 0 and no output when there are no errors.\nOn error, writes to stderr and exits with code 1."
+    )]
+    pub parse_only: bool,
+
+    /// List bytecode (reference `luac -l`).
+    ///
+    /// Specify twice or more to also list constants, locals and upvalues (`-ll`).
+    #[arg(
+        short = 'l',
+        long = "list",
+        action = clap::ArgAction::Count,
+        help = "List bytecode (`-ll` for details, reference `luac -l`)",
+        long_help = "List compiled bytecode in the reference `luac -l` format.\n  -l   instruction list (address, line, mnemonic, operands, comment)\n  -ll  the above + constant table, local variables, upvalue names"
+    )]
+    pub list: u8,
+
+    /// Output file for the compiled chunk (reference `luac -o`, default `luac.out`).
+    ///
+    /// The output format is rua-specific (`\x1bRua` magic) and runs with `rua`.
+    #[arg(
+        short = 'o',
+        long = "output",
+        value_name = "FILE",
+        help = "Output file for the compiled chunk (default: luac.out)",
+        long_help = "Write the compiled chunk to the given file.\nThe output format is rua-specific (magic \\x1bRua) and runs with `rua <file>`.\nNothing is written when `-p` is given."
+    )]
+    pub output: Option<String>,
+
+    /// Strip debug info (line numbers, local names) (reference `luac -s`).
+    ///
+    /// Reduces the size of the output file.
+    #[arg(
+        short = 's',
+        long = "strip",
+        help = "Strip debug info (line numbers, local / upvalue names) (reference `luac -s`)"
+    )]
+    pub strip: bool,
+
+    /// Input files (`-` for standard input). Multiple files allowed.
+    #[arg(
+        value_name = "FILES",
+        required = true,
+        help = "Input files (`-` for standard input)",
+        long_help = "Lua source files to compile.\nMultiple files are allowed with `-l` and `-p` only; chunk output `-o` takes a single file."
+    )]
+    pub files: Vec<String>,
 }
