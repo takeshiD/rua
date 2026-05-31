@@ -6,8 +6,8 @@
 use crate::error::LuaResult;
 use crate::gc::{GcHandle, TableKey};
 use crate::state::LuaState;
-use crate::value::convert::number_to_string;
 use crate::value::Value;
+use crate::value::convert::number_to_string;
 
 use super::aux;
 use super::pattern::{self, Cap, MatchState};
@@ -389,8 +389,11 @@ fn format_float(s: &Spec, x: f64, conv: u8) -> String {
 
     let body = if x.is_nan() {
         prefix.clear();
-        if x.is_sign_negative() { format!("-{}", if upper {"NAN"} else {"nan"}) }
-        else { (if upper {"NAN"} else {"nan"}).to_string() }
+        if x.is_sign_negative() {
+            format!("-{}", if upper { "NAN" } else { "nan" })
+        } else {
+            (if upper { "NAN" } else { "nan" }).to_string()
+        }
     } else if x.is_infinite() {
         (if upper { "INF" } else { "inf" }).to_string()
     } else {
@@ -560,14 +563,21 @@ fn find_or_match(state: &mut LuaState, find: bool) -> LuaResult<i32> {
     loop {
         let mut ms = MatchState::new(&s, &p);
         ms.reset();
-        if let Some(e) = ms.do_match(s1, pat_start).map_err(|e| aux::rt_error(state, e))? {
+        if let Some(e) = ms
+            .do_match(s1, pat_start)
+            .map_err(|e| aux::rt_error(state, e))?
+        {
             if find {
-                let caps = ms.captures(s1, e, false).map_err(|er| aux::rt_error(state, er))?;
+                let caps = ms
+                    .captures(s1, e, false)
+                    .map_err(|er| aux::rt_error(state, er))?;
                 let mut out = vec![Value::Number((s1 + 1) as f64), Value::Number(e as f64)];
                 out.extend(caps_to_values(state, &s, &caps));
                 return aux::ret(state, out);
             } else {
-                let caps = ms.captures(s1, e, true).map_err(|er| aux::rt_error(state, er))?;
+                let caps = ms
+                    .captures(s1, e, true)
+                    .map_err(|er| aux::rt_error(state, er))?;
                 let out = caps_to_values(state, &s, &caps);
                 return aux::ret(state, out);
             }
@@ -648,7 +658,9 @@ fn gmatch_aux(state: &mut LuaState) -> LuaResult<i32> {
             Some(e) => {
                 let newstart = if e == src { e + 1 } else { e };
                 aux::set_field(state, selfk, "pos", Value::Number(newstart as f64));
-                let caps = ms.captures(src, e, true).map_err(|er| aux::rt_error(state, er))?;
+                let caps = ms
+                    .captures(src, e, true)
+                    .map_err(|er| aux::rt_error(state, er))?;
                 let out = caps_to_values(state, &s, &caps);
                 return aux::ret(state, out);
             }
@@ -660,9 +672,12 @@ fn gmatch_aux(state: &mut LuaState) -> LuaResult<i32> {
 fn field_bytes(state: &mut LuaState, tk: TableKey, name: &str) -> Vec<u8> {
     let kv = state.new_string(name.as_bytes());
     match state.global.heap.get_table(tk).map(|t| t.get(&kv)) {
-        Some(Value::GcRef(GcHandle::Str(sk))) => {
-            state.global.heap.get_str(sk).map(|s| s.as_bytes().to_vec()).unwrap_or_default()
-        }
+        Some(Value::GcRef(GcHandle::Str(sk))) => state
+            .global
+            .heap
+            .get_str(sk)
+            .map(|s| s.as_bytes().to_vec())
+            .unwrap_or_default(),
         _ => Vec::new(),
     }
 }
@@ -689,9 +704,18 @@ fn l_gsub(state: &mut LuaState) -> LuaResult<i32> {
     };
     // 置換種別の検査。
     match repl {
-        Value::GcRef(GcHandle::Str(_)) | Value::Number(_) | Value::GcRef(GcHandle::Table(_))
+        Value::GcRef(GcHandle::Str(_))
+        | Value::Number(_)
+        | Value::GcRef(GcHandle::Table(_))
         | Value::GcRef(GcHandle::Closure(_)) => {}
-        _ => return Err(aux::arg_error(state, 3, "gsub", "string/function/table expected")),
+        _ => {
+            return Err(aux::arg_error(
+                state,
+                3,
+                "gsub",
+                "string/function/table expected",
+            ));
+        }
     }
 
     let anchor = pat.first() == Some(&b'^');
@@ -705,7 +729,9 @@ fn l_gsub(state: &mut LuaState) -> LuaResult<i32> {
         }
         let mut ms = MatchState::new(&src, &pat);
         ms.reset();
-        let e = ms.do_match(s, pat_start).map_err(|er| aux::rt_error(state, er))?;
+        let e = ms
+            .do_match(s, pat_start)
+            .map_err(|er| aux::rt_error(state, er))?;
         match e {
             Some(e) => {
                 n += 1;
@@ -748,12 +774,16 @@ fn add_value(
     e: usize,
     repl: Value,
 ) -> LuaResult<()> {
-    let caps = ms.captures(s, e, true).map_err(|er| aux::rt_error(state, er))?;
+    let caps = ms
+        .captures(s, e, true)
+        .map_err(|er| aux::rt_error(state, er))?;
     match repl {
         Value::GcRef(GcHandle::Str(_)) | Value::Number(_) => {
             // 文字列置換: %0=全体, %1..=キャプチャ。
             let news = match repl {
-                Value::GcRef(GcHandle::Str(k)) => state.global.heap.get_str(k).unwrap().as_bytes().to_vec(),
+                Value::GcRef(GcHandle::Str(k)) => {
+                    state.global.heap.get_str(k).unwrap().as_bytes().to_vec()
+                }
                 Value::Number(num) => number_to_string(num).into_bytes(),
                 _ => unreachable!(),
             };
@@ -766,7 +796,12 @@ fn add_value(
                 .into_iter()
                 .next()
                 .unwrap_or(Value::Nil);
-            let v = state.global.heap.get_table(tk).map(|t| t.get(&key)).unwrap_or(Value::Nil);
+            let v = state
+                .global
+                .heap
+                .get_table(tk)
+                .map(|t| t.get(&key))
+                .unwrap_or(Value::Nil);
             append_repl_result(state, out, src, s, e, v)
         }
         Value::GcRef(GcHandle::Closure(_)) => {
@@ -829,7 +864,10 @@ fn add_s(
         }
         i += 1;
         if i >= news.len() {
-            return Err(aux::rt_error(state, "invalid use of '%' in replacement string"));
+            return Err(aux::rt_error(
+                state,
+                "invalid use of '%' in replacement string",
+            ));
         }
         let d = news[i];
         i += 1;
@@ -840,11 +878,16 @@ fn add_s(
         } else {
             let idx = (d - b'1') as usize;
             if idx >= caps.len() {
-                return Err(aux::rt_error(state, "invalid capture index in replacement string"));
+                return Err(aux::rt_error(
+                    state,
+                    "invalid capture index in replacement string",
+                ));
             }
             match &caps[idx] {
                 Cap::Str(start, len) => out.extend_from_slice(&src[*start..*start + *len]),
-                Cap::Pos(init) => out.extend_from_slice(number_to_string((*init as f64) + 1.0).as_bytes()),
+                Cap::Pos(init) => {
+                    out.extend_from_slice(number_to_string((*init as f64) + 1.0).as_bytes())
+                }
             }
         }
     }

@@ -9,8 +9,8 @@ use std::io::Write;
 use crate::error::{LuaError, LuaResult};
 use crate::gc::{GcHandle, TableKey};
 use crate::state::LuaState;
-use crate::value::convert::str_to_number;
 use crate::value::Value;
+use crate::value::convert::str_to_number;
 
 use super::aux;
 
@@ -146,7 +146,12 @@ fn ipairs_aux(state: &mut LuaState) -> LuaResult<i32> {
     let tk = aux::check_table(state, &args, 0, "ipairs")?;
     let i = aux::check_int(state, &args, 1, "ipairs")? + 1;
     let v = if i >= 1 {
-        state.global.heap.get_table(tk).map(|t| t.get_int(i as usize)).unwrap_or(Value::Nil)
+        state
+            .global
+            .heap
+            .get_table(tk)
+            .map(|t| t.get_int(i as usize))
+            .unwrap_or(Value::Nil)
     } else {
         Value::Nil
     };
@@ -195,7 +200,12 @@ fn l_select(state: &mut LuaState) -> LuaResult<i32> {
     let first = aux::opt_value(&args, 0);
     // select('#', ...) は引数個数。
     if let Value::GcRef(GcHandle::Str(k)) = first {
-        let is_hash = state.global.heap.get_str(k).map(|s| s.as_bytes() == b"#").unwrap_or(false);
+        let is_hash = state
+            .global
+            .heap
+            .get_str(k)
+            .map(|s| s.as_bytes() == b"#")
+            .unwrap_or(false);
         if is_hash {
             let n = (args.len() - 1) as f64;
             return aux::ret(state, vec![Value::Number(n)]);
@@ -339,7 +349,12 @@ fn l_rawget(state: &mut LuaState) -> LuaResult<i32> {
     let args = aux::args_vec(state);
     let tk = aux::check_table(state, &args, 0, "rawget")?;
     let key = aux::opt_value(&args, 1);
-    let v = state.global.heap.get_table(tk).map(|t| t.get(&key)).unwrap_or(Value::Nil);
+    let v = state
+        .global
+        .heap
+        .get_table(tk)
+        .map(|t| t.get(&key))
+        .unwrap_or(Value::Nil);
     aux::ret(state, vec![v])
 }
 
@@ -371,11 +386,23 @@ fn l_rawlen(state: &mut LuaState) -> LuaResult<i32> {
     // Lua 5.1 には rawlen は無いが、table/string の生の長さ取得として提供（簡便）。
     let args = aux::args_vec(state);
     let len = match aux::opt_value(&args, 0) {
-        Value::GcRef(GcHandle::Table(k)) => {
-            state.global.heap.get_table(k).map(|t| t.length()).unwrap_or(0)
+        Value::GcRef(GcHandle::Table(k)) => state
+            .global
+            .heap
+            .get_table(k)
+            .map(|t| t.length())
+            .unwrap_or(0),
+        Value::GcRef(GcHandle::Str(k)) => {
+            state.global.heap.get_str(k).map(|s| s.len()).unwrap_or(0)
         }
-        Value::GcRef(GcHandle::Str(k)) => state.global.heap.get_str(k).map(|s| s.len()).unwrap_or(0),
-        _ => return Err(aux::arg_error(state, 1, "rawlen", "table or string expected")),
+        _ => {
+            return Err(aux::arg_error(
+                state,
+                1,
+                "rawlen",
+                "table or string expected",
+            ));
+        }
     };
     aux::ret(state, vec![Value::Number(len as f64)])
 }
@@ -391,7 +418,14 @@ fn l_setmetatable(state: &mut LuaState) -> LuaResult<i32> {
     let mt_handle = match mt {
         Value::Nil => None,
         Value::GcRef(h @ GcHandle::Table(_)) => Some(h),
-        _ => return Err(aux::arg_error(state, 2, "setmetatable", "nil or table expected")),
+        _ => {
+            return Err(aux::arg_error(
+                state,
+                2,
+                "setmetatable",
+                "nil or table expected",
+            ));
+        }
     };
     // 既存メタテーブルが __metatable で保護されていれば変更不可。
     if has_protected_metatable(state, tk) {
@@ -404,7 +438,10 @@ fn l_setmetatable(state: &mut LuaState) -> LuaResult<i32> {
 }
 
 fn has_protected_metatable(state: &mut LuaState, tk: TableKey) -> bool {
-    !matches!(aux::get_metafield(state, Value::GcRef(GcHandle::Table(tk)), "__metatable"), Value::Nil)
+    !matches!(
+        aux::get_metafield(state, Value::GcRef(GcHandle::Table(tk)), "__metatable"),
+        Value::Nil
+    )
 }
 
 fn l_getmetatable(state: &mut LuaState) -> LuaResult<i32> {
@@ -430,7 +467,12 @@ fn l_unpack(state: &mut LuaState) -> LuaResult<i32> {
     let tk = aux::check_table(state, &args, 0, "unpack")?;
     let i = aux::opt_int(state, &args, 1, "unpack", 1)?;
     let j = if matches!(aux::opt_value(&args, 2), Value::Nil) {
-        state.global.heap.get_table(tk).map(|t| t.length()).unwrap_or(0) as i64
+        state
+            .global
+            .heap
+            .get_table(tk)
+            .map(|t| t.length())
+            .unwrap_or(0) as i64
     } else {
         aux::check_int(state, &args, 2, "unpack")?
     };
@@ -438,9 +480,19 @@ fn l_unpack(state: &mut LuaState) -> LuaResult<i32> {
     let mut idx = i;
     while idx <= j {
         let v = if idx >= 1 {
-            state.global.heap.get_table(tk).map(|t| t.get_int(idx as usize)).unwrap_or(Value::Nil)
+            state
+                .global
+                .heap
+                .get_table(tk)
+                .map(|t| t.get_int(idx as usize))
+                .unwrap_or(Value::Nil)
         } else {
-            state.global.heap.get_table(tk).map(|t| t.get(&Value::Number(idx as f64))).unwrap_or(Value::Nil)
+            state
+                .global
+                .heap
+                .get_table(tk)
+                .map(|t| t.get(&Value::Number(idx as f64)))
+                .unwrap_or(Value::Nil)
         };
         out.push(v);
         idx += 1;

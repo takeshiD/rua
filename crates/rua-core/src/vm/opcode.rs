@@ -257,10 +257,44 @@ const ALL_OPCODES: [OpCode; NUM_OPCODES] = [
 ];
 
 const OP_NAMES: [&str; NUM_OPCODES] = [
-    "MOVE", "LOADK", "LOADBOOL", "LOADNIL", "GETUPVAL", "GETGLOBAL", "GETTABLE", "SETGLOBAL",
-    "SETUPVAL", "SETTABLE", "NEWTABLE", "SELF", "ADD", "SUB", "MUL", "DIV", "MOD", "POW", "UNM",
-    "NOT", "LEN", "CONCAT", "JMP", "EQ", "LT", "LE", "TEST", "TESTSET", "CALL", "TAILCALL",
-    "RETURN", "FORLOOP", "FORPREP", "TFORLOOP", "SETLIST", "CLOSE", "CLOSURE", "VARARG",
+    "MOVE",
+    "LOADK",
+    "LOADBOOL",
+    "LOADNIL",
+    "GETUPVAL",
+    "GETGLOBAL",
+    "GETTABLE",
+    "SETGLOBAL",
+    "SETUPVAL",
+    "SETTABLE",
+    "NEWTABLE",
+    "SELF",
+    "ADD",
+    "SUB",
+    "MUL",
+    "DIV",
+    "MOD",
+    "POW",
+    "UNM",
+    "NOT",
+    "LEN",
+    "CONCAT",
+    "JMP",
+    "EQ",
+    "LT",
+    "LE",
+    "TEST",
+    "TESTSET",
+    "CALL",
+    "TAILCALL",
+    "RETURN",
+    "FORLOOP",
+    "FORPREP",
+    "TFORLOOP",
+    "SETLIST",
+    "CLOSE",
+    "CLOSURE",
+    "VARARG",
 ];
 
 const OP_MODES: [OpMode; NUM_OPCODES] = {
@@ -333,12 +367,7 @@ impl Instruction {
     #[inline]
     pub fn abc(op: OpCode, a: u32, b: u32, c: u32) -> Self {
         debug_assert!(a <= MAXARG_A && b <= MAXARG_B && c <= MAXARG_C);
-        Instruction(
-            ((op as u32) << POS_OP)
-                | (a << POS_A)
-                | (b << POS_B)
-                | (c << POS_C),
-        )
+        Instruction(((op as u32) << POS_OP) | (a << POS_A) | (b << POS_B) | (c << POS_C))
     }
 
     /// iABx 形式の命令を作る。

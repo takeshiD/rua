@@ -169,7 +169,13 @@ impl<'a> MatchState<'a> {
                     continue;
                 }
                 Some(b'*') => return self.max_expand(s, p, ep),
-                Some(b'+') => return if m { self.max_expand(s + 1, p, ep) } else { Ok(None) },
+                Some(b'+') => {
+                    return if m {
+                        self.max_expand(s + 1, p, ep)
+                    } else {
+                        Ok(None)
+                    };
+                }
                 Some(b'-') => return self.min_expand(s, p, ep),
                 _ => {
                     if !m {
@@ -254,7 +260,8 @@ impl<'a> MatchState<'a> {
 
     fn check_capture(&self, l: u8) -> Result<usize, String> {
         let idx = l as isize - b'1' as isize;
-        if idx < 0 || idx as usize >= self.level || self.capture[idx as usize].len == CAP_UNFINISHED {
+        if idx < 0 || idx as usize >= self.level || self.capture[idx as usize].len == CAP_UNFINISHED
+        {
             return Err("invalid capture index".into());
         }
         Ok(idx as usize)
@@ -325,7 +332,11 @@ impl<'a> MatchState<'a> {
     ///
     /// キャプチャが無い場合、`whole_if_empty` が真ならマッチ全体を 1 件返す。
     pub fn captures(&self, s: usize, e: usize, whole_if_empty: bool) -> Result<Vec<Cap>, String> {
-        let nlevels = if self.level == 0 && whole_if_empty { 1 } else { self.level };
+        let nlevels = if self.level == 0 && whole_if_empty {
+            1
+        } else {
+            self.level
+        };
         let mut v = Vec::with_capacity(nlevels);
         for i in 0..nlevels {
             v.push(self.one_capture(i, s, e)?);

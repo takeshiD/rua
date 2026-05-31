@@ -74,7 +74,12 @@ fn new_array(state: &mut LuaState, items: &[Value]) -> Value {
     let t = state.new_table();
     if let Value::GcRef(GcHandle::Table(tk)) = t {
         for (i, v) in items.iter().enumerate() {
-            let _ = state.global.heap.get_table_mut(tk).unwrap().set(Value::Number((i + 1) as f64), *v);
+            let _ = state
+                .global
+                .heap
+                .get_table_mut(tk)
+                .unwrap()
+                .set(Value::Number((i + 1) as f64), *v);
         }
     }
     t
@@ -124,10 +129,28 @@ fn tonumber_variants() {
 fn select_works() {
     let mut s = new_state();
     let hash = sval(&mut s, "#");
-    let r = call_g(&mut s, "select", &[hash, Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)]);
+    let r = call_g(
+        &mut s,
+        "select",
+        &[
+            hash,
+            Value::Number(1.0),
+            Value::Number(2.0),
+            Value::Number(3.0),
+        ],
+    );
     assert_eq!(as_num(r[0]), 3.0);
 
-    let r = call_g(&mut s, "select", &[Value::Number(2.0), Value::Number(10.0), Value::Number(20.0), Value::Number(30.0)]);
+    let r = call_g(
+        &mut s,
+        "select",
+        &[
+            Value::Number(2.0),
+            Value::Number(10.0),
+            Value::Number(20.0),
+            Value::Number(30.0),
+        ],
+    );
     assert_eq!(r.len(), 2);
     assert_eq!(as_num(r[0]), 20.0);
     assert_eq!(as_num(r[1]), 30.0);
@@ -137,7 +160,11 @@ fn select_works() {
 fn assert_and_pcall() {
     let mut s = new_state();
     // assert(true, ...) returns its args.
-    let r = call_g(&mut s, "assert", &[Value::Number(5.0), Value::Boolean(true)]);
+    let r = call_g(
+        &mut s,
+        "assert",
+        &[Value::Number(5.0), Value::Boolean(true)],
+    );
     assert_eq!(as_num(r[0]), 5.0);
 
     // pcall(assert, false) -> (false, "assertion failed!")
@@ -193,10 +220,18 @@ fn pairs_iterates_all() {
 }
 
 fn state_table_with_mixed(state: &mut LuaState) -> Value {
-    let t = new_array(state, &[Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)]);
+    let t = new_array(
+        state,
+        &[Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)],
+    );
     if let Value::GcRef(GcHandle::Table(tk)) = t {
         let k = state.new_string(b"k");
-        let _ = state.global.heap.get_table_mut(tk).unwrap().set(k, Value::Number(100.0));
+        let _ = state
+            .global
+            .heap
+            .get_table_mut(tk)
+            .unwrap()
+            .set(k, Value::Number(100.0));
     }
     t
 }
@@ -466,7 +501,12 @@ fn table_maxn() {
 }
 
 fn state_set(state: &mut LuaState, tk: rua_core::gc::TableKey, key: f64, v: Value) {
-    let _ = state.global.heap.get_table_mut(tk).unwrap().set(Value::Number(key), v);
+    let _ = state
+        .global
+        .heap
+        .get_table_mut(tk)
+        .unwrap()
+        .set(Value::Number(key), v);
 }
 
 // ---- math -------------------------------------------------------------------

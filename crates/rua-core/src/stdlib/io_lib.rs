@@ -9,8 +9,8 @@ use std::io::{BufRead, Write};
 use crate::error::LuaResult;
 use crate::gc::GcHandle;
 use crate::state::LuaState;
-use crate::value::convert::number_to_string;
 use crate::value::Value;
+use crate::value::convert::number_to_string;
 
 use super::aux;
 

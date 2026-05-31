@@ -202,7 +202,11 @@ fn from_lua_option_number() {
 #[test]
 fn chunk_into_function_and_call() {
     let mut lua = Lua::new();
-    let func = lua.load("return ...").set_name("test_chunk").into_function().unwrap();
+    let func = lua
+        .load("return ...")
+        .set_name("test_chunk")
+        .into_function()
+        .unwrap();
     // 引数付き呼び出し（可変長引数）。
     let result: Vec<Value> = lua.call(func, (1.0f64, 2.0f64)).unwrap();
     // チャンクに渡した引数が `...` として返る。

@@ -101,7 +101,13 @@ fn strip_roundtrip_runs() {
     std::fs::write(&lua, src).unwrap();
 
     let (_o, _e, code) = stdout_str(
-        &["luac", "-s", "-o", out.to_str().unwrap(), lua.to_str().unwrap()],
+        &[
+            "luac",
+            "-s",
+            "-o",
+            out.to_str().unwrap(),
+            lua.to_str().unwrap(),
+        ],
         b"",
     );
     assert_eq!(code, 0);

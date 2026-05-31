@@ -215,13 +215,16 @@ impl Lua {
     }
 
     /// 関数を呼び出す（本家 `lua_pcall` 相当・保護付き）。引数列・戻り値列は多値変換に対応。
-    pub fn call<A: IntoLuaMulti, R: FromLuaMulti>(&mut self, func: Function, args: A) -> LuaResult<R> {
+    pub fn call<A: IntoLuaMulti, R: FromLuaMulti>(
+        &mut self,
+        func: Function,
+        args: A,
+    ) -> LuaResult<R> {
         let arg_vals = args.into_lua_multi(self)?;
         let core_args: Vec<CoreValue> = arg_vals.into_iter().map(|v| self.to_core(v)).collect();
         let fval = CoreValue::GcRef(func.handle());
-        let results = crate::state::call::pcall(&mut self.state, |s| {
-            crate::vm::call(s, fval, &core_args)
-        })?;
+        let results =
+            crate::state::call::pcall(&mut self.state, |s| crate::vm::call(s, fval, &core_args))?;
         let high: Vec<Value> = results.into_iter().map(|v| self.from_core(v)).collect();
         R::from_lua_multi(high, self)
     }
