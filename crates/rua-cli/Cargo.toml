@@ -3,11 +3,19 @@ name = "rua-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Standalone `rua` interpreter CLI (rua run <file>)."
+description = "Standalone `rua` interpreter CLI (rua <file>) and `ruac` compiler."
+
+[lib]
+name = "rua_cli"
+path = "src/lib.rs"
 
 [[bin]]
 name = "rua"
 path = "src/main.rs"
+
+[[bin]]
+name = "ruac"
+path = "src/bin/ruac.rs"
 
 [dependencies]
 rua-core.workspace = true

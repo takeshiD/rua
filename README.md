@@ -54,26 +54,19 @@ rua
 
 ## CLI Reference
 
-### `rua run` — Execute a script
+### `rua <file>` — Execute a script
 
 ```bash
-rua run script.lua [args...]
-rua run -               # read from stdin
+rua script.lua [args...]
+rua -                   # read from stdin
 ```
 
 Script arguments are available as `arg[0]`, `arg[1]`, ... and through `...` in the main chunk — the same convention as the official `lua5.1` binary.
 
-### `rua` (no subcommand) — Shorthand
+### `rua` (no arguments) — Interactive REPL
 
 ```bash
-rua script.lua [args...]   # same as rua run
-rua                        # launch REPL
-```
-
-### `rua repl` — Interactive REPL
-
-```bash
-rua repl
+rua
 ```
 
 | Key | Action |
@@ -86,15 +79,15 @@ rua repl
 Expressions are evaluated and their values printed automatically (`1+2` → prints `3`).
 History is saved to `~/.local/share/rua/history.txt`.
 
-### `rua luac` — Compiler
+### `ruac` — Compiler
 
 ```bash
-rua luac -p script.lua              # syntax check only (no output on success)
-rua luac -l script.lua              # list bytecode instructions
-rua luac -ll script.lua             # list bytecode + constants, locals, upvalues
-rua luac -o out.rbc script.lua      # compile to file (rua bytecode format)
-rua luac -s -o out.rbc script.lua   # strip debug info
-rua run out.rbc                     # execute compiled chunk
+ruac -p script.lua              # syntax check only (no output on success)
+ruac -l script.lua              # list bytecode instructions
+ruac -ll script.lua             # list bytecode + constants, locals, upvalues
+ruac -o out.rbc script.lua      # compile to file (rua bytecode format)
+ruac -s -o out.rbc script.lua   # strip debug info
+rua out.rbc                     # execute compiled chunk
 ```
 
 ### `rua completions` — Shell completions
@@ -136,7 +129,7 @@ rua completions fish > ~/.config/fish/completions/rua.fish
 rua/
 ├── crates/
 │   ├── rua-core/        # Lexer → Parser → Codegen → VM → GC · stdlib · Rust API
-│   ├── rua-cli/         # Standalone interpreter binary (rua run, repl, luac)
+│   ├── rua-cli/         # Standalone interpreter (rua) + compiler (ruac) binaries
 │   └── rua-capi/        # C API layer — lua.h ABI-compatible cdylib + staticlib
 ├── tests/
 │   ├── lua/             # 15 golden test scripts (compared against lua5.1 output)
@@ -152,7 +145,7 @@ rua/
 | Crate | Role | Lua 5.1 equivalent |
 |-------|------|--------------------|
 | `rua-core` | Everything except the CLI front-end | `llex.c`, `lparser.c`, `lcode.c`, `lvm.c`, `lgc.c`, `lstate.c`, `ldo.c`, `lib*.c` |
-| `rua-cli` | `rua` binary, REPL, luac | `lua.c`, `luac.c` |
+| `rua-cli` | `rua` interpreter + REPL, `ruac` compiler | `lua.c`, `luac.c` |
 | `rua-capi` | `extern "C"` ABI layer | `lapi.c`, `lauxlib.c` |
 
 ### Value model

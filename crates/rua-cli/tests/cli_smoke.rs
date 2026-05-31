@@ -1,7 +1,7 @@
 //! `rua` CLI のスモークテスト（lua-cli 所有）。
 //!
-//! clap 移行後も後方互換（`rua run` / `rua <file>` / `rua -`）が壊れないこと、
-//! サブコマンド・補完生成・終了コードが期待通りであることを最小限で確認する。
+//! `rua <file>` / `rua -` でのスクリプト実行、補完生成・終了コードが
+//! 期待通りであることを最小限で確認する。
 
 use std::io::Write;
 use std::process::{Command, Stdio};
@@ -57,15 +57,8 @@ fn stdin_dash_runs() {
 }
 
 #[test]
-fn run_subcommand_with_stdin_dash() {
-    let (stdout, _stderr, code) = run_with_stdin(&["run", "-"], b"print('hi')\n");
-    assert_eq!(code, 0);
-    assert_eq!(stdout, "hi\n");
-}
-
-#[test]
 fn missing_file_exits_one() {
-    let (_stdout, stderr, code) = run(&["run", "definitely_missing_file.lua"]);
+    let (_stdout, stderr, code) = run(&["definitely_missing_file.lua"]);
     assert_eq!(code, 1);
     assert!(stderr.contains("cannot open"), "stderr: {stderr}");
 }
@@ -85,7 +78,7 @@ fn script_args_exposed_as_arg_and_vararg() {
     let path = dir.join(format!("rua_cli_argtest_{}.lua", std::process::id()));
     std::fs::write(&path, src).unwrap();
     let path_str = path.to_str().unwrap();
-    let (stdout, _stderr, code) = run(&["run", path_str, "a", "b"]);
+    let (stdout, _stderr, code) = run(&[path_str, "a", "b"]);
     let _ = std::fs::remove_file(&path);
     assert_eq!(code, 0);
     assert_eq!(stdout, format!("{path_str}\ta\tb\na\tb\n"));

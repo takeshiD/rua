@@ -1,4 +1,4 @@
-//! `rua luac`（luac 相当）のスモークテスト（lua-cli 所有）。
+//! `ruac`（luac 相当）のスモークテスト（lua-cli 所有）。
 //!
 //! 構文チェック(`-p`)・列挙(`-l`)・チャンク出力(`-o`)とラウンドトリップ実行を確認する。
 
@@ -6,17 +6,18 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 
 const RUA_BIN: &str = env!("CARGO_BIN_EXE_rua");
+const RUAC_BIN: &str = env!("CARGO_BIN_EXE_ruac");
 
-fn run_with_stdin(args: &[&str], stdin: &[u8]) -> (Vec<u8>, String, i32) {
-    let mut child = Command::new(RUA_BIN)
+fn run_with_stdin(bin: &str, args: &[&str], stdin: &[u8]) -> (Vec<u8>, String, i32) {
+    let mut child = Command::new(bin)
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect("rua バイナリを起動できない");
+        .expect("バイナリを起動できない");
     child.stdin.take().unwrap().write_all(stdin).unwrap();
-    let out = child.wait_with_output().expect("rua 終了待ち失敗");
+    let out = child.wait_with_output().expect("終了待ち失敗");
     (
         out.stdout,
         String::from_utf8_lossy(&out.stderr).into_owned(),
@@ -24,8 +25,15 @@ fn run_with_stdin(args: &[&str], stdin: &[u8]) -> (Vec<u8>, String, i32) {
     )
 }
 
-fn stdout_str(args: &[&str], stdin: &[u8]) -> (String, String, i32) {
-    let (o, e, c) = run_with_stdin(args, stdin);
+/// `ruac` を起動して (stdout, stderr, code) を返す。
+fn ruac(args: &[&str], stdin: &[u8]) -> (String, String, i32) {
+    let (o, e, c) = run_with_stdin(RUAC_BIN, args, stdin);
+    (String::from_utf8_lossy(&o).into_owned(), e, c)
+}
+
+/// `rua <file>` を起動して (stdout, stderr, code) を返す。
+fn rua(args: &[&str], stdin: &[u8]) -> (String, String, i32) {
+    let (o, e, c) = run_with_stdin(RUA_BIN, args, stdin);
     (String::from_utf8_lossy(&o).into_owned(), e, c)
 }
 
@@ -35,21 +43,21 @@ fn tmp_path(name: &str) -> std::path::PathBuf {
 
 #[test]
 fn parse_only_ok() {
-    let (stdout, _e, code) = stdout_str(&["luac", "-p", "-"], b"print(1+2)\n");
+    let (stdout, _e, code) = ruac(&["-p", "-"], b"print(1+2)\n");
     assert_eq!(code, 0);
     assert!(stdout.is_empty(), "出力があってはならない: {stdout}");
 }
 
 #[test]
 fn parse_only_reports_syntax_error() {
-    let (_o, stderr, code) = stdout_str(&["luac", "-p", "-"], b"local = =\n");
+    let (_o, stderr, code) = ruac(&["-p", "-"], b"local = =\n");
     assert_eq!(code, 1);
     assert!(stderr.contains("rua:"), "stderr: {stderr}");
 }
 
 #[test]
 fn list_outputs_bytecode() {
-    let (stdout, _e, code) = stdout_str(&["luac", "-l", "-p", "-"], b"print(40 + 2)\n");
+    let (stdout, _e, code) = ruac(&["-l", "-p", "-"], b"print(40 + 2)\n");
     assert_eq!(code, 0);
     // ヘッダと主要命令が含まれること（luac -l 風）。
     assert!(stdout.contains("main <"), "header: {stdout}");
@@ -60,7 +68,7 @@ fn list_outputs_bytecode() {
 
 #[test]
 fn list_verbose_dumps_constants_and_locals() {
-    let (stdout, _e, code) = stdout_str(&["luac", "-ll", "-p", "-"], b"local x = 7\nreturn x\n");
+    let (stdout, _e, code) = ruac(&["-ll", "-p", "-"], b"local x = 7\nreturn x\n");
     assert_eq!(code, 0);
     assert!(stdout.contains("constants ("), "constants: {stdout}");
     assert!(stdout.contains("locals ("), "locals: {stdout}");
@@ -74,18 +82,15 @@ fn dump_and_run_roundtrip() {
     std::fs::write(&lua, src).unwrap();
 
     // コンパイル → チャンク出力。
-    let (_o, stderr, code) = stdout_str(
-        &["luac", "-o", out.to_str().unwrap(), lua.to_str().unwrap()],
-        b"",
-    );
-    assert_eq!(code, 0, "luac 失敗: {stderr}");
+    let (_o, stderr, code) = ruac(&["-o", out.to_str().unwrap(), lua.to_str().unwrap()], b"");
+    assert_eq!(code, 0, "ruac 失敗: {stderr}");
     assert!(out.exists(), "出力チャンクが無い");
     // マジックを確認。
     let bytes = std::fs::read(&out).unwrap();
     assert_eq!(&bytes[..4], b"\x1bRua");
 
     // 出力チャンクを実行。
-    let (stdout, stderr, code) = stdout_str(&["run", out.to_str().unwrap()], b"");
+    let (stdout, stderr, code) = rua(&[out.to_str().unwrap()], b"");
     assert_eq!(code, 0, "チャンク実行失敗: {stderr}");
     assert_eq!(stdout, "42\n");
 
@@ -100,18 +105,12 @@ fn strip_roundtrip_runs() {
     let out = tmp_path("strip.rbc");
     std::fs::write(&lua, src).unwrap();
 
-    let (_o, _e, code) = stdout_str(
-        &[
-            "luac",
-            "-s",
-            "-o",
-            out.to_str().unwrap(),
-            lua.to_str().unwrap(),
-        ],
+    let (_o, _e, code) = ruac(
+        &["-s", "-o", out.to_str().unwrap(), lua.to_str().unwrap()],
         b"",
     );
     assert_eq!(code, 0);
-    let (stdout, _e, code) = stdout_str(&["run", out.to_str().unwrap()], b"");
+    let (stdout, _e, code) = rua(&[out.to_str().unwrap()], b"");
     assert_eq!(code, 0);
     assert_eq!(stdout, "OK\n");
 

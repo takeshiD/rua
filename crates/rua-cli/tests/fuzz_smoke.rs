@@ -107,12 +107,12 @@ fn rua_is_live() -> bool {
     if std::fs::write(&tmp, b"print(1)\n").is_err() {
         return false;
     }
-    let out = Command::new(RUA_BIN).arg("run").arg(&tmp).output();
+    let out = Command::new(RUA_BIN).arg(&tmp).output();
     let _ = std::fs::remove_file(&tmp);
     matches!(out, Ok(o) if o.status.success())
 }
 
-/// 1 本のソースを `rua run` で実行し、クラッシュ（panic/abort/signal）を検出する。
+/// 1 本のソースを `rua <file>` で実行し、クラッシュ（panic/abort/signal）を検出する。
 /// 戻り値: `Some(reason)` ならクラッシュ。`None` なら正常（成功 or クリーンなエラー終了）。
 fn run_and_detect_crash(idx: usize, source: &str) -> Option<String> {
     let path: PathBuf =
@@ -126,7 +126,7 @@ fn run_and_detect_crash(idx: usize, source: &str) -> Option<String> {
             return Some("一時ファイル書込失敗".into());
         }
     }
-    let result = Command::new(RUA_BIN).arg("run").arg(&path).output();
+    let result = Command::new(RUA_BIN).arg(&path).output();
     let _ = std::fs::remove_file(&path);
 
     match result {

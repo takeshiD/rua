@@ -126,7 +126,7 @@ fn official_suite_pass_rate() {
     for script in &scripts {
         let rel = script.strip_prefix(&dir).unwrap_or(script);
         let mut cmd = Command::new(RUA_BIN);
-        cmd.arg("run").arg(rel).current_dir(&dir);
+        cmd.arg(rel).current_dir(&dir);
         match run_with_timeout(&mut cmd, PER_TEST_TIMEOUT) {
             Outcome::Exited(0) => passed += 1,
             // 101 = Rust パニック。互換性上ほぼ常にバグ。

@@ -54,26 +54,19 @@ rua
 
 ## CLI リファレンス
 
-### `rua run` — スクリプト実行
+### `rua <file>` — スクリプト実行
 
 ```bash
-rua run script.lua [引数...]
-rua run -               # 標準入力から実行
+rua script.lua [引数...]
+rua -                   # 標準入力から実行
 ```
 
 スクリプト引数は `arg[0]`, `arg[1]`, ... およびメインチャンクの `...` からアクセスできます。これは本家 `lua5.1` バイナリと同じ規約です。
 
-### `rua`（サブコマンド省略）— 短縮形
+### `rua`（引数なし）— 対話インタープリタ
 
 ```bash
-rua script.lua [引数...]   # rua run と同じ
-rua                        # REPL を起動
-```
-
-### `rua repl` — 対話インタープリタ
-
-```bash
-rua repl
+rua
 ```
 
 | キー | 動作 |
@@ -86,15 +79,15 @@ rua repl
 式を入力すると自動的に評価して値を表示します（例: `1+2` → `3`）。  
 履歴は `~/.local/share/rua/history.txt` に保存されます。
 
-### `rua luac` — コンパイラ
+### `ruac` — コンパイラ
 
 ```bash
-rua luac -p script.lua              # 構文チェックのみ（成功時は無出力）
-rua luac -l script.lua              # バイトコード命令を列挙
-rua luac -ll script.lua             # バイトコード＋定数表・ローカル変数・upvalue も表示
-rua luac -o out.rbc script.lua      # コンパイル済みチャンクをファイルへ出力
-rua luac -s -o out.rbc script.lua   # デバッグ情報を除去して出力
-rua run out.rbc                     # コンパイル済みチャンクを実行
+ruac -p script.lua              # 構文チェックのみ（成功時は無出力）
+ruac -l script.lua              # バイトコード命令を列挙
+ruac -ll script.lua             # バイトコード＋定数表・ローカル変数・upvalue も表示
+ruac -o out.rbc script.lua      # コンパイル済みチャンクをファイルへ出力
+ruac -s -o out.rbc script.lua   # デバッグ情報を除去して出力
+rua out.rbc                     # コンパイル済みチャンクを実行
 ```
 
 ### `rua completions` — シェル補完
@@ -136,7 +129,7 @@ rua completions fish > ~/.config/fish/completions/rua.fish
 rua/
 ├── crates/
 │   ├── rua-core/        # レキサー → パーサー → コードジェネレータ → VM → GC · stdlib · Rust API
-│   ├── rua-cli/         # スタンドアロンインタープリタ（rua run, repl, luac）
+│   ├── rua-cli/         # スタンドアロンインタープリタ（rua）＋コンパイラ（ruac）
 │   └── rua-capi/        # C API レイヤー（lua.h ABI 互換 cdylib + staticlib）
 ├── tests/
 │   ├── lua/             # ゴールデンテスト 15 本（lua5.1 との出力比較）
@@ -152,7 +145,7 @@ rua/
 | クレート | 役割 | Lua 5.1 本家対応 |
 |---------|------|-----------------|
 | `rua-core` | CLI フロント以外の全実装 | `llex.c`, `lparser.c`, `lcode.c`, `lvm.c`, `lgc.c`, `lstate.c`, `ldo.c`, `lib*.c` |
-| `rua-cli` | `rua` バイナリ・REPL・luac | `lua.c`, `luac.c` |
+| `rua-cli` | `rua` インタープリタ・REPL、`ruac` コンパイラ | `lua.c`, `luac.c` |
 | `rua-capi` | `extern "C"` ABI レイヤー | `lapi.c`, `lauxlib.c` |
 
 ### 値モデル

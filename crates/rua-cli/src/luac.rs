@@ -1,4 +1,4 @@
-//! `rua luac` — 本家 `luac.c` 相当（コンパイラ / バイトコード列挙）。
+//! `ruac` — 本家 `luac.c` 相当（コンパイラ / バイトコード列挙）。
 //!
 //! # オプション一覧
 //! - `-p` : 構文チェックのみ（出力なし、本家 `luac -p`）。
@@ -21,14 +21,14 @@ use rua_core::compiler::compile;
 use rua_core::state::LuaState;
 use rua_core::vm::Proto;
 
-use crate::cli::LuacArgs;
+use crate::cli::RuacCli;
 use crate::{bytecode, disasm};
 
 /// 既定の出力ファイル名（本家 `luac` と同じ）。
 const DEFAULT_OUTPUT: &str = "luac.out";
 
-/// `rua luac` のエントリ。
-pub fn main(args: LuacArgs) -> ExitCode {
+/// `ruac` のエントリ。
+pub fn main(args: RuacCli) -> ExitCode {
     // 出力するか（本家: `-p` で dumping=0）。
     let dumping = !args.parse_only;
 
@@ -36,9 +36,9 @@ pub fn main(args: LuacArgs) -> ExitCode {
     // `-p` や `-l` だけなら複数ファイルを受け付ける（本家同様）。
     if dumping && args.files.len() > 1 {
         eprintln!(
-            "rua luac: 複数入力ファイルのチャンク出力は未対応です。\n\
-             ヒント: `-p` で構文チェックのみ行うか、`-l` でバイトコード列挙のみ行う場合は\n\
-             複数ファイルを指定できます（`-p` または `-l` を追加してください）。"
+            "ruac: chunk output for multiple input files is not supported.\n\
+             hint: use `-p` for syntax check only, or `-l` to list bytecode only;\n\
+             those modes accept multiple files (add `-p` or `-l`)."
         );
         return ExitCode::from(1);
     }
@@ -61,7 +61,7 @@ pub fn main(args: LuacArgs) -> ExitCode {
                 }
             }
             Err(e) => {
-                eprintln!("rua luac: cannot open {file}: {e}");
+                eprintln!("ruac: cannot open {file}: {e}");
                 return ExitCode::from(1);
             }
         }
@@ -77,13 +77,13 @@ pub fn main(args: LuacArgs) -> ExitCode {
     // 出力（本家 `if (dumping) luaU_dump`）。
     if dumping {
         let Some(proto) = protos.first() else {
-            eprintln!("rua luac: 入力ファイルがありません");
+            eprintln!("ruac: no input files");
             return ExitCode::from(1);
         };
         let output = args.output.as_deref().unwrap_or(DEFAULT_OUTPUT);
         let bytes = bytecode::dump(&state.global.heap, proto, args.strip);
         if let Err(e) = std::fs::write(output, &bytes) {
-            eprintln!("rua luac: cannot write {output}: {e}");
+            eprintln!("ruac: cannot write {output}: {e}");
             return ExitCode::from(1);
         }
     }
