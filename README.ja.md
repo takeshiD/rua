@@ -194,21 +194,49 @@ cargo +nightly fuzz run compile_run  -- -max_total_time=60
 ## Rust からの組み込み
 
 ```rust
-use rua_core::{LuaState, stdlib};
+use rua_core::api::Lua;
 
-let mut state = LuaState::new();
-stdlib::open_libs(&mut state);
+let mut lua = Lua::new(); // 標準ライブラリを開く
 
-// ネイティブ関数を登録
-state.register("add", |state| {
-    let a = state.check_number(1)?;
-    let b = state.check_number(2)?;
-    state.push_number(a + b);
-    Ok(1)
-});
+// インライン Lua を評価して Rust 値として取得
+let n: f64 = lua.load("return 1 + 2").eval().unwrap();
+assert_eq!(n, 3.0);
 
-// Lua コードを実行
-state.do_string("print(add(1, 2))")?;
+// グローバル経由で Rust 値を Lua へ渡す
+lua.set_global("base", 10i64).unwrap();
+let result: f64 = lua.load("return base * 7").eval().unwrap();
+assert_eq!(result, 70.0);
+
+// Lua から呼べる Rust 関数を登録
+use rua_core::state::LuaState;
+use rua_core::error::LuaResult;
+use rua_core::stdlib::aux;
+use rua_core::value::Value;
+
+fn add(state: &mut LuaState) -> LuaResult<i32> {
+    let args = aux::args_vec(state);
+    let a = aux::check_number(state, &args, 0, "add")?;
+    let b = aux::check_number(state, &args, 1, "add")?;
+    aux::ret(state, vec![Value::Number(a + b)])
+}
+
+lua.register_fn("add", add).unwrap();
+let sum: f64 = lua.load("return add(3, 4)").eval().unwrap();
+assert_eq!(sum, 7.0);
+```
+
+実際に動くサンプルは [`crates/rua-core/examples/`](crates/rua-core/examples/) を参照:
+
+| ファイル | 内容 |
+|----------|------|
+| [`01_basic_eval.rs`](crates/rua-core/examples/01_basic_eval.rs) | Lua 式の評価・グローバル変数・エラーキャッチ |
+| [`02_load_file.rs`](crates/rua-core/examples/02_load_file.rs) | 外部 `.lua` ファイルのロード実行・値の受け渡し |
+| [`03_rust_functions.rs`](crates/rua-core/examples/03_rust_functions.rs) | Rust 関数を Lua から呼ぶ・Lua 関数を Rust から呼ぶ |
+
+```bash
+cargo run -p rua-core --example 01_basic_eval
+cargo run -p rua-core --example 02_load_file
+cargo run -p rua-core --example 03_rust_functions
 ```
 
 ## C / C++ からの組み込み
