@@ -29,6 +29,7 @@ pub mod base;
 pub mod io_lib;
 pub mod math_lib;
 pub mod os_lib;
+pub mod package_lib;
 pub mod pattern;
 pub mod string_lib;
 pub mod table_lib;
@@ -45,4 +46,5 @@ pub fn open_libs(state: &mut LuaState) {
     math_lib::open(state);
     io_lib::open(state);
     os_lib::open(state);
+    package_lib::open(state);
 }

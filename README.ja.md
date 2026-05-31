@@ -121,8 +121,8 @@ rua completions fish > ~/.config/fish/completions/rua.fish
 | `math` | ✅ 完了 | 三角関数・指数・丸め・乱数など全関数 |
 | `io` | ✅ 完了 | `io.open`, `io.close`, `io.read`, `io.write`, `io.lines`, `io.flush`, `io.input`, `io.output`, `io.type`, `io.stdin/stdout/stderr`、全 `file:*` メソッド |
 | `os` | 🔶 一部 | `os.time`, `os.date`, `os.clock`, `os.exit` 実装済み。`os.execute`, `os.getenv`, `os.remove`, `os.rename` は未実装 |
+| `package` / `require` | 🔶 一部 | `require`, `package.loaded`, `package.preload`, `package.loaders`, `package.path`, `package.config`。純 Lua モジュールのみ（C ローダ非対応・`package.cpath` は空） |
 | `debug` | ❌ 未実装 | 予定 |
-| `package` / `require` | ❌ 未実装 | 予定 |
 | `coroutine` | ❌ 未実装 | 予定 |
 
 ### 既知の制限

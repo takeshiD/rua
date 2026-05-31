@@ -121,8 +121,8 @@ rua completions fish > ~/.config/fish/completions/rua.fish
 | `math` | ✅ Complete | All trigonometric, exponential, rounding, and random functions |
 | `io` | ✅ Complete | `io.open`, `io.close`, `io.read`, `io.write`, `io.lines`, `io.flush`, `io.input`, `io.output`, `io.type`, `io.stdin/stdout/stderr`, all `file:*` methods |
 | `os` | 🔶 Partial | `os.time`, `os.date`, `os.clock`, `os.exit` implemented; `os.execute`, `os.getenv`, `os.remove`, `os.rename` pending |
+| `package` / `require` | 🔶 Partial | `require`, `package.loaded`, `package.preload`, `package.loaders`, `package.path`, `package.config`. Pure-Lua modules only (no C loader; `package.cpath` is empty) |
 | `debug` | ❌ Not yet | Planned |
-| `package` / `require` | ❌ Not yet | Planned |
 | `coroutine` | ❌ Not yet | Planned |
 
 ### Known limitations
