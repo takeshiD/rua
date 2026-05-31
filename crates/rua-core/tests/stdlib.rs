@@ -566,3 +566,61 @@ fn os_date_utc_and_difftime() {
     let r = call_lib(&mut s, "os", "getenv", &[key]);
     assert!(matches!(r[0], Value::Nil));
 }
+
+#[test]
+fn os_tmpname_unique() {
+    let mut s = new_state();
+    let r1 = call_lib(&mut s, "os", "tmpname", &[]);
+    let r2 = call_lib(&mut s, "os", "tmpname", &[]);
+    let n1 = as_string(&s, r1[0]);
+    let n2 = as_string(&s, r2[0]);
+    assert_ne!(n1, n2);
+    assert!(n1.starts_with("/tmp/"));
+}
+
+#[test]
+fn os_execute_basic() {
+    let mut s = new_state();
+    // 引数なし: シェル利用可能 → truthy。
+    let r = call_lib(&mut s, "os", "execute", &[]);
+    assert!(r[0].is_truthy());
+
+    // "true" コマンド: 終了コード 0。
+    let cmd = sval(&mut s, "true");
+    let r = call_lib(&mut s, "os", "execute", &[cmd]);
+    assert_eq!(as_num(r[0]), 0.0);
+
+    // "false" コマンド: 終了コード 1。
+    let cmd = sval(&mut s, "false");
+    let r = call_lib(&mut s, "os", "execute", &[cmd]);
+    assert_eq!(as_num(r[0]), 1.0);
+}
+
+#[test]
+fn os_remove_and_rename() {
+    let mut s = new_state();
+
+    let src_path = "/tmp/rua_test_os_src_file";
+    let dst_path = "/tmp/rua_test_os_dst_file";
+    std::fs::write(src_path, b"rua test").unwrap();
+
+    // os.rename: ファイルをリネーム。
+    let src = sval(&mut s, src_path);
+    let dst = sval(&mut s, dst_path);
+    let r = call_lib(&mut s, "os", "rename", &[src, dst]);
+    assert_eq!(r[0], Value::Boolean(true));
+    assert!(std::path::Path::new(dst_path).exists());
+    assert!(!std::path::Path::new(src_path).exists());
+
+    // os.remove: リネーム後のファイルを削除。
+    let dst = sval(&mut s, dst_path);
+    let r = call_lib(&mut s, "os", "remove", &[dst]);
+    assert_eq!(r[0], Value::Boolean(true));
+    assert!(!std::path::Path::new(dst_path).exists());
+
+    // os.remove: 存在しないファイルは nil + エラーメッセージ。
+    let missing = sval(&mut s, "/tmp/rua_nonexistent_file_xyz_99999");
+    let r = call_lib(&mut s, "os", "remove", &[missing]);
+    assert!(matches!(r[0], Value::Nil));
+    assert!(matches!(r[1], Value::GcRef(_)));
+}
