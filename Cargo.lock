@@ -630,7 +630,7 @@ dependencies = [
 
 [[package]]
 name = "rua-capi"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "cbindgen",
  "rua-core",
@@ -638,7 +638,7 @@ dependencies = [
 
 [[package]]
 name = "rua-cli"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "clap",
  "clap_complete",
@@ -649,7 +649,7 @@ dependencies = [
 
 [[package]]
 name = "rua-core"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "slotmap",
 ]
