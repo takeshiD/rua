@@ -56,22 +56,17 @@ fn dump_table(state: &mut LuaState) -> LuaResult<i32> {
         .map(|t| {
             let mut result = Vec::new();
             let mut cur = Value::Nil;
-            loop {
-                match t.next(&cur) {
-                    Ok(Some((k, v))) => {
-                        cur = k.clone();
-                        result.push((k, v));
-                    }
-                    _ => break,
-                }
+            while let Ok(Some((k, v))) = t.next(&cur) {
+                cur = k;
+                result.push((cur, v));
             }
             result
         })
         .unwrap_or_default();
 
     for (k, v) in &pairs {
-        let ks = aux::raw_tostring(state, k.clone());
-        let vs = aux::raw_tostring(state, v.clone());
+        let ks = aux::raw_tostring(state, *k);
+        let vs = aux::raw_tostring(state, *v);
         println!(
             "  [{}] = {}",
             String::from_utf8_lossy(&ks),
@@ -93,17 +88,11 @@ fn main() {
     // ── Call from Lua ─────────────────────────────────────────────────────
 
     // 1. Vector length
-    let len: f64 = lua
-        .load("return vec_len(1, 2, 2)")
-        .eval()
-        .unwrap();
+    let len: f64 = lua.load("return vec_len(1, 2, 2)").eval().unwrap();
     println!("vec_len(1, 2, 2) = {len:.4}"); // sqrt(1+4+4) = 3.0000
 
     // 2. String repetition
-    let repeated: String = lua
-        .load(r#"return repeat_str("ab", 4)"#)
-        .eval()
-        .unwrap();
+    let repeated: String = lua.load(r#"return repeat_str("ab", 4)"#).eval().unwrap();
     println!("repeat_str('ab', 4) = {repeated}"); // abababab
 
     // 3. Table dump (printed inside the Rust function)
