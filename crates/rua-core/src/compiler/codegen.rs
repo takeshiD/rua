@@ -672,11 +672,9 @@ impl FuncState {
                 // EK::K として LOADK 経由でレジスタへ落とす。
                 e.k = EK::K(idx);
             }
-            EK::K(idx) => {
-                if idx <= MAXINDEXRK {
-                    return Ok(rk_as_k(idx));
-                }
-                // idx > MAXINDEXRK: LOADK でレジスタへ spill させる（fall-through）。
+            // idx > MAXINDEXRK の場合はマッチせず、下の exp2anyreg で LOADK spill される。
+            EK::K(idx) if idx <= MAXINDEXRK => {
+                return Ok(rk_as_k(idx));
             }
             _ => {}
         }
