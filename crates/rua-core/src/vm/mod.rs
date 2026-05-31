@@ -8,5 +8,5 @@ pub mod interp;
 pub mod opcode;
 pub mod proto;
 
-pub use interp::{call, run, set_string_metatable, string_metatable, where_string};
+pub use interp::{call, resume_execute, run, set_string_metatable, string_metatable, where_string};
 pub use proto::Proto;

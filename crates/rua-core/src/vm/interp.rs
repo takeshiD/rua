@@ -16,7 +16,7 @@ use std::rc::Rc;
 
 use crate::error::{LuaError, LuaResult};
 use crate::gc::GcHandle;
-use crate::state::{CallInfo, LuaState};
+use crate::state::{CallInfo, LuaFrameState, LuaState};
 use crate::value::closure::{Closure, LuaClosure, Upvalue, UpvalueState};
 use crate::value::convert::{number_to_string, str_to_number};
 use crate::value::table::Table;
@@ -43,6 +43,87 @@ pub fn run(state: &mut LuaState, proto: Rc<Proto>, args: &[Value]) -> LuaResult<
     let closure = LuaClosure::new(proto);
     let h = state.global.heap.alloc_closure(Closure::Lua(closure));
     call(state, Value::GcRef(h), args)
+}
+
+/// 中断済みコルーチンフレームを `resume_args` で再開する。
+///
+/// `state.stack[stack_base..]` および `state.call_info[ci_base..]` には
+/// コルーチンの保存済みフレームが積まれていること。各フレームの `CallInfo.lua_frame`
+/// が保存された実行状態を持つ（tail call パススルーの場合は `None`）。
+pub fn resume_execute(
+    state: &mut LuaState,
+    _stack_base: usize,
+    ci_base: usize,
+    resume_args: Vec<Value>,
+) -> LuaResult<Vec<Value>> {
+    let mut current_vals = resume_args;
+
+    loop {
+        if state.call_info.len() <= ci_base {
+            return Ok(current_vals);
+        }
+        let ci_idx = state.call_info.len() - 1;
+
+        // lua_frame が None のフレームはネイティブへの TAILCALL が yield したもの。
+        // このフレームには再開点がないのでポップして外側フレームへ値を渡す。
+        if state.call_info[ci_idx].lua_frame.is_none() {
+            let base = state.call_info[ci_idx].base;
+            state.call_info.pop();
+            state.stack.truncate(base);
+            continue;
+        }
+
+        let frame = state.call_info[ci_idx].lua_frame.take().unwrap();
+        let LuaFrameState {
+            resume_call_pc,
+            proto,
+            upvals,
+            varargs,
+            open,
+            top,
+        } = *frame;
+        let base = state.call_info[ci_idx].base;
+
+        // yield を発生させた CALL 命令を再読みして結果レジスタへ current_vals を配置。
+        let call_instr = proto.code[resume_call_pc];
+        let call_a = call_instr.a() as usize;
+        let want = if call_instr.c() == 0 {
+            current_vals.len()
+        } else {
+            call_instr.c() as usize - 1
+        };
+        let mut restored_top = top;
+        for i in 0..want {
+            set_reg(
+                state,
+                base + call_a + i,
+                current_vals.get(i).copied().unwrap_or(Value::Nil),
+            );
+        }
+        if call_instr.c() == 0 {
+            restored_top = base + call_a + current_vals.len();
+        }
+
+        match execute_inner(
+            state,
+            base,
+            proto,
+            upvals,
+            varargs,
+            open,
+            restored_top,
+            resume_call_pc + 1,
+        ) {
+            Ok(vals) => {
+                // このフレームが正常終了。CI とスタックをポップして外側フレームへ。
+                state.call_info.pop();
+                state.stack.truncate(base);
+                current_vals = vals;
+            }
+            Err(LuaError::Yield(vals)) => return Err(LuaError::Yield(vals)),
+            Err(e) => return Err(e),
+        }
+    }
 }
 
 /// 任意の呼び出し可能値 `func` を `args` で呼ぶ（本家 `lua_call`/`luaD_call` 相当）。
@@ -146,15 +227,28 @@ fn call_native(
         source: None,
         current_line: 0,
         native_closure: Some(key),
+        lua_frame: None,
     });
-    let nres = func(state)?;
-    let nres = nres.max(0) as usize;
-    let total = state.stack.len();
-    let start = total.saturating_sub(nres);
-    let results = state.stack[start..total].to_vec();
-    state.call_info.pop();
-    state.stack.truncate(base);
-    Ok(results)
+    let r = func(state);
+    match r {
+        Ok(nres) => {
+            let nres = nres.max(0) as usize;
+            let total = state.stack.len();
+            let start = total.saturating_sub(nres);
+            let results = state.stack[start..total].to_vec();
+            state.call_info.pop();
+            state.stack.truncate(base);
+            Ok(results)
+        }
+        Err(LuaError::Yield(vals)) => {
+            // Yield: ネイティブフレームをクリーンアップしてから伝播する。
+            // これにより上位の execute_inner の CALL ハンドラが正しい CallInfo を参照できる。
+            state.call_info.pop();
+            state.stack.truncate(base);
+            Err(LuaError::Yield(vals))
+        }
+        Err(e) => Err(e),
+    }
 }
 
 fn call_lua(
@@ -191,14 +285,29 @@ fn call_lua(
         expected_results: 0,
         source: Some(short_src(proto.source.as_deref())),
         current_line: proto.line_defined,
-        native_closure: None, // Lua クロージャフレームは native_closure を持たない。
+        native_closure: None,
+        lua_frame: None,
     });
 
     let result = execute(state, base, proto, upvals, varargs);
 
-    state.call_info.pop();
-    state.stack.truncate(base);
-    result
+    match result {
+        Ok(v) => {
+            state.call_info.pop();
+            state.stack.truncate(base);
+            Ok(v)
+        }
+        Err(LuaError::Yield(vals)) => {
+            // コルーチン yield: CI とスタックフレームを保持したまま伝播する。
+            // l_resume がこれらを saved_call_info / saved_stack に移す。
+            Err(LuaError::Yield(vals))
+        }
+        Err(e) => {
+            state.call_info.pop();
+            state.stack.truncate(base);
+            Err(e)
+        }
+    }
 }
 
 // ============================================================================
@@ -208,18 +317,46 @@ fn call_lua(
 fn execute(
     state: &mut LuaState,
     base: usize,
+    proto: Rc<Proto>,
+    upvals: Vec<Upvalue>,
+    varargs: Vec<Value>,
+) -> LuaResult<Vec<Value>> {
+    let initial_top = base + proto.max_stack_size as usize;
+    execute_inner(
+        state,
+        base,
+        proto,
+        upvals,
+        varargs,
+        Vec::new(),
+        initial_top,
+        0,
+    )
+}
+
+/// コルーチン再開用エントリ。保存済みの open upvalue リスト・top・pc から実行を続ける。
+#[allow(clippy::too_many_arguments)]
+fn execute_inner(
+    state: &mut LuaState,
+    base: usize,
     mut proto: Rc<Proto>,
     mut upvals: Vec<Upvalue>,
     mut varargs: Vec<Value>,
+    saved_open: Vec<(usize, Upvalue)>,
+    saved_top: usize,
+    saved_pc: usize,
 ) -> LuaResult<Vec<Value>> {
-    // 末尾呼び出し（TAILCALL）はこの 'reenter ループで **フレームを再利用** して継続する。
-    // `base`（スタック上の起点）と CallInfo は据え置きにし、proto/upvals/varargs だけ差し替える。
-    // これにより Rust 再帰もスタック伸長も伴わず、深い末尾再帰でも溢れない（本家 TCO 相当）。
+    // このフレームの CallInfo インデックスを記録する。ネストした呼び出しが
+    // Yield したとき、last_mut() ではなくこのインデックスで自フレームを参照する。
+    let my_ci_index = state.call_info.len().saturating_sub(1);
+    let mut first_entry = true;
     'reenter: loop {
-        let mut open: Vec<(usize, Upvalue)> = Vec::new();
-        let mut pc: usize = 0;
-        // 多値（multret）操作で動くスタックトップ。通常はフレーム終端。
-        let mut top = base + proto.max_stack_size as usize;
+        let (mut open, mut top, mut pc) = if first_entry {
+            first_entry = false;
+            (saved_open.clone(), saved_top, saved_pc)
+        } else {
+            (Vec::new(), base + proto.max_stack_size as usize, 0)
+        };
 
         // このフレームの CallInfo に整形済みソース名を反映（TCO 再入時の差し替えにも対応）。
         if let Some(ci) = state.call_info.last_mut() {
@@ -410,7 +547,27 @@ fn execute(
                     for i in 0..nargs {
                         callargs.push(reg(state, base, a + 1 + i));
                     }
-                    let results = call(state, func, &callargs)?;
+                    let r = call(state, func, &callargs);
+                    let results = match r {
+                        Ok(v) => v,
+                        Err(LuaError::Yield(vals)) => {
+                            // コルーチン yield: 自フレームの状態を CallInfo に保存して上位へ伝播。
+                            // my_ci_index を使うことでネストした Lua 呼び出しが CI を保持したまま
+                            // 伝播してきた場合でも正しい自フレームに保存できる。
+                            if let Some(ci) = state.call_info.get_mut(my_ci_index) {
+                                ci.lua_frame = Some(Box::new(LuaFrameState {
+                                    resume_call_pc: cur_pc,
+                                    proto: proto.clone(),
+                                    upvals: upvals.clone(),
+                                    varargs: varargs.clone(),
+                                    open: open.clone(),
+                                    top,
+                                }));
+                            }
+                            return Err(LuaError::Yield(vals));
+                        }
+                        Err(e) => return Err(e),
+                    };
                     let want = if instr.c() == 0 {
                         results.len()
                     } else {

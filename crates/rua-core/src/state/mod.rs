@@ -17,12 +17,15 @@
 
 pub mod call;
 
+use std::rc::Rc;
+
 use crate::gc::Heap;
 use crate::gc::alloc::GcConfig;
 use crate::gc::{ClosureKey, GcHandle};
 use crate::value::Value;
-use crate::value::closure::Closure;
+use crate::value::closure::{Closure, Upvalue};
 use crate::value::table::Table;
+use crate::vm::proto::Proto;
 
 /// ネイティブ（Rust 実装）関数のシグネチャ（本家 `lua_CFunction` 相当）。
 ///
@@ -33,10 +36,31 @@ use crate::value::table::Table;
 /// TODO(lua-vm/lua-stdlib): 引数アクセス用のヘルパ API（`L.arg(n)` 等）を整備する。
 pub type NativeFn = fn(&mut LuaState) -> crate::error::LuaResult<i32>;
 
+/// コルーチン yield/resume 時に Lua フレームの実行状態を保存するための構造体。
+///
+/// `execute` ループがコルーチン yield を検出した際、次回 resume で再開するために
+/// その時点のローカル変数（pc・proto・upvalue・vararg・open upvalue・スタックトップ）を
+/// この構造体へ退避する。resume 時に `vm::interp::resume_execute` が読み取って復元する。
+#[derive(Debug, Clone)]
+pub struct LuaFrameState {
+    /// yield を発生させた CALL 命令の pc（proto.code のインデックス）。
+    /// resume 時にこの命令を再読みして結果レジスタを特定し、resume 引数を配置する。
+    pub resume_call_pc: usize,
+    /// 現在実行中のプロトタイプ。
+    pub proto: Rc<Proto>,
+    /// このフレームの upvalue 群。
+    pub upvals: Vec<Upvalue>,
+    /// このフレームの可変長引数。
+    pub varargs: Vec<Value>,
+    /// open upvalue リスト（絶対スタックインデックス → Upvalue セル）。
+    pub open: Vec<(usize, Upvalue)>,
+    /// 多値操作で動くスタックトップ（絶対インデックス）。
+    pub top: usize,
+}
+
 /// コールスタックのフレーム（本家 `CallInfo` 相当）。
 ///
 /// 関数呼び出しごとに 1 つ積まれ、スタック上の関数位置・ベース・戻り先などを記録する。
-/// 中身は VM 実装に合わせて拡張する。TODO(lua-vm/lua-runtime): pc・期待戻り値数・可変長引数情報。
 #[derive(Debug, Clone)]
 pub struct CallInfo {
     /// このフレームのスタックベース（最初のローカル/引数のインデックス）。
@@ -46,18 +70,15 @@ pub struct CallInfo {
     /// 期待される戻り値の数（`LUA_MULTRET` 相当は将来表現）。
     pub expected_results: usize,
     /// 実行中プロトタイプの整形済みソース名（本家 `short_src`）。ネイティブ関数フレームは `None`。
-    /// `error()` の level 指定によるエラー位置付与（`luaL_where` 相当）に用いる。
     pub source: Option<String>,
     /// このフレームで現在（または直近のサブ呼び出し時点で）実行中の命令のソース行。
     /// Lua フレームでは VM が逐次更新する。ネイティブ関数フレームは 0。
     pub current_line: u32,
     /// ネイティブクロージャフレームの場合、実行中のクロージャのヒープキーを保持する。
-    ///
-    /// `call_native` がネイティブ関数を呼ぶ直前に設定する。Lua クロージャフレームと
-    /// `__call` 経由の呼び出しでは `None`。
-    /// `lua-capi` がこのキーで `c_functions: HashMap<ClosureKey, _>` を引き、
-    /// upvalue に安全にアクセスするために使用する（第二マイルストーン C API 対応）。
     pub native_closure: Option<crate::gc::ClosureKey>,
+    /// コルーチン yield 時に保存する Lua フレームの実行状態。
+    /// Lua クロージャフレームが yield で中断されたときのみ `Some`。
+    pub lua_frame: Option<Box<LuaFrameState>>,
 }
 
 /// 全スレッド共有の状態（本家 `global_State`）。

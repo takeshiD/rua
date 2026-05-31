@@ -126,6 +126,8 @@ impl Lua {
                 // 失わないよう lightuserdata 風プレースホルダにフォールバックする。
                 // TODO(lua-capi): 高レベル Userdata 型を追加する。
                 GcHandle::Userdata(_) => Value::LightUserData(std::ptr::null_mut()),
+                // スレッド（コルーチン）は高レベル API v1 では未サポート。
+                GcHandle::Thread(_) => Value::LightUserData(std::ptr::null_mut()),
             },
         }
     }

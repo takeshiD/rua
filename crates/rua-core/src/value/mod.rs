@@ -11,6 +11,7 @@ pub mod closure;
 pub mod convert;
 pub mod string;
 pub mod table;
+pub mod thread;
 pub mod userdata;
 
 use std::os::raw::c_void;
@@ -86,6 +87,7 @@ impl Value {
                 GcHandle::Table(_) => LuaType::Table,
                 GcHandle::Closure(_) => LuaType::Function,
                 GcHandle::Userdata(_) => LuaType::Userdata,
+                GcHandle::Thread(_) => LuaType::Thread,
             },
         }
     }

@@ -584,6 +584,7 @@ fn value_to_display(state: &LuaState, v: &Value) -> String {
         Value::GcRef(GcHandle::Table(_)) => "table".to_string(),
         Value::GcRef(GcHandle::Closure(_)) => "function".to_string(),
         Value::GcRef(GcHandle::Userdata(_)) => "userdata".to_string(),
+        Value::GcRef(GcHandle::Thread(_)) => "thread".to_string(),
         Value::LightUserData(_) => "userdata".to_string(),
     }
 }

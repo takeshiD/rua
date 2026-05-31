@@ -26,6 +26,7 @@
 
 pub mod aux;
 pub mod base;
+pub mod coroutine_lib;
 pub mod io_lib;
 pub mod math_lib;
 pub mod os_lib;
@@ -47,4 +48,5 @@ pub fn open_libs(state: &mut LuaState) {
     io_lib::open(state);
     os_lib::open(state);
     package_lib::open(state);
+    coroutine_lib::open(state);
 }

@@ -1,0 +1,18 @@
+suspended
+true	30
+dead
+true	10
+true	101
+dead
+false	cannot resume dead coroutine
+1	2	3
+4	5
+6
+1
+2
+3
+false
+42
+14
+thread
+true

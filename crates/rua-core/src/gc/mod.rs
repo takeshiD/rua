@@ -26,6 +26,7 @@ use crate::value::Value;
 use crate::value::closure::Closure;
 use crate::value::string::LuaString;
 use crate::value::table::Table;
+use crate::value::thread::LuaThread;
 use crate::value::userdata::Userdata;
 
 new_key_type! {
@@ -37,20 +38,21 @@ new_key_type! {
     pub struct ClosureKey;
     /// ユーザーデータアリーナ用キー（世代付き）。
     pub struct UserdataKey;
+    /// コルーチン（スレッド）アリーナ用キー（世代付き）。
+    pub struct ThreadKey;
 }
 
 /// GC 管理オブジェクトへの参照。`Value::GcRef` が保持する。
 ///
 /// enum 判別子が Lua の型タグを兼ねるため、本体をデリファレンスせずに型判定できる。
 /// `Copy` なので VM スタック上を値として安価に移動できる。
-///
-/// TODO(lua-runtime): コルーチン実装時に `Thread(ThreadKey)` を追加する。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum GcHandle {
     Str(StringKey),
     Table(TableKey),
     Closure(ClosureKey),
     Userdata(UserdataKey),
+    Thread(ThreadKey),
 }
 
 /// 各 GC オブジェクトに付与するヘッダ（mark ビット）。本家 `GCObject` の `marked` に相当。
@@ -105,8 +107,8 @@ pub struct Heap {
     tables: SlotMap<TableKey, GcBox<Table>>,
     closures: SlotMap<ClosureKey, GcBox<Closure>>,
     userdata: SlotMap<UserdataKey, GcBox<Userdata>>,
+    threads: SlotMap<ThreadKey, GcBox<LuaThread>>,
     /// 文字列インターナ: バイト列 → 既存キー。Lua 文字列は同値なら同一オブジェクト。
-    /// （本家 `lstring.c` の文字列テーブルに相当）。
     interner: HashMap<Box<[u8]>, StringKey>,
     /// 直近の collect 以降に確保したオブジェクト数の目安（GC 起動閾値判定のたたき台）。
     alloc_count: usize,
@@ -155,6 +157,13 @@ impl Heap {
         GcHandle::Userdata(key)
     }
 
+    /// コルーチン（スレッド）を確保する。
+    pub fn alloc_thread(&mut self, thread: LuaThread) -> GcHandle {
+        let key = self.threads.insert(GcBox::new(thread));
+        self.alloc_count += 1;
+        GcHandle::Thread(key)
+    }
+
     // ---- 参照（access）---------------------------------------------------
     //
     // ハンドルの型と一致しない get は `None`。世代不一致（解放済み）も `None`。
@@ -187,9 +196,21 @@ impl Heap {
         self.userdata.get_mut(key).map(|b| &mut b.value)
     }
 
+    pub fn get_thread(&self, key: ThreadKey) -> Option<&LuaThread> {
+        self.threads.get(key).map(|b| &b.value)
+    }
+
+    pub fn get_thread_mut(&mut self, key: ThreadKey) -> Option<&mut LuaThread> {
+        self.threads.get_mut(key).map(|b| &mut b.value)
+    }
+
     /// 現在の生存オブジェクト総数（テスト/デバッグ用）。
     pub fn live_object_count(&self) -> usize {
-        self.strings.len() + self.tables.len() + self.closures.len() + self.userdata.len()
+        self.strings.len()
+            + self.tables.len()
+            + self.closures.len()
+            + self.userdata.len()
+            + self.threads.len()
     }
 
     // ---- 回収（mark-and-sweep）------------------------------------------
@@ -238,12 +259,18 @@ impl Heap {
                         b.value.trace(&mut tracer);
                     }
                 }
+                GcHandle::Thread(k) => {
+                    // スレッドはスタック内の値を子として持つ。
+                    if mark_box(self.threads.get_mut(k))
+                        && let Some(b) = self.threads.get(k)
+                    {
+                        b.value.trace(&mut tracer);
+                    }
+                }
             }
         }
 
         // --- sweep ---
-        // 白（!marked）のスロットを解放し、生存スロットの mark を白へ戻す。
-        // 文字列の解放時はインターナからも対応エントリを除去する。
         let interner = &mut self.interner;
         self.strings.retain(|_k, b| {
             let keep = b.marked;
@@ -256,8 +283,22 @@ impl Heap {
         self.tables.retain(|_k, b| sweep_box(b));
         self.closures.retain(|_k, b| sweep_box(b));
         self.userdata.retain(|_k, b| sweep_box(b));
+        self.threads.retain(|_k, b| sweep_box(b));
 
         self.alloc_count = 0;
+    }
+}
+
+impl Trace for LuaThread {
+    fn trace(&self, tracer: &mut Tracer) {
+        // 保存済みスタック内の GC 値を mark する。
+        for v in &self.saved_stack {
+            tracer.mark_value(v);
+        }
+        // body 関数も mark する。
+        if let Some(v) = &self.body {
+            tracer.mark_value(v);
+        }
     }
 }
 
