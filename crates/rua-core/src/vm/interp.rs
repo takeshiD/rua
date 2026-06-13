@@ -26,7 +26,9 @@ use super::opcode::{self, LFIELDS_PER_FLUSH, OpCode};
 use super::proto::Proto;
 
 /// Lua 関数呼び出しの最大ネスト深度（本家 `LUAI_MAXCCALLS` 相当の保護）。
-pub const MAX_CALL_DEPTH: usize = 200;
+/// 本家 Lua 5.1 は LUAI_MAXCCALLS=200 だが CallInfo スタックは別管理のため
+/// ネイティブ呼び出しも含めてもう少し余裕を持たせる。
+pub const MAX_CALL_DEPTH: usize = 300;
 
 /// `__index`/`__newindex` チェーンを辿る最大回数（本家 `MAXTAGLOOP`）。
 const MAXTAGLOOP: usize = 100;
@@ -1259,6 +1261,10 @@ fn metatable_of(state: &LuaState, v: Value) -> Option<crate::gc::TableKey> {
         // 文字列は型ごとの共有メタテーブル（`global_State.string_metatable`）を参照する。
         // 本体の登録は lua-stdlib が string ライブラリ初期化時に行う。
         Value::GcRef(GcHandle::Str(_)) => state.global.string_metatable,
+        // 数値・boolean・nil の型共有メタテーブル（debug.setmetatable で設定）。
+        Value::Number(_) => state.global.number_metatable,
+        Value::Boolean(_) => state.global.boolean_metatable,
+        Value::Nil => state.global.nil_metatable,
         _ => None,
     };
     match mt {

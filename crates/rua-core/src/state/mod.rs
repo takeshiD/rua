@@ -101,6 +101,15 @@ pub struct GlobalState {
     /// 本体（通常 `{ __index = string }`）の登録は lua-stdlib が `string` ライブラリを開く際に行う。
     /// `Some` の間は常時 GC ルート。
     pub string_metatable: Option<GcHandle>,
+    /// 数値型の共有メタテーブル（本家 `global_State.mt[LUA_TNUMBER]`）。
+    /// `debug.setmetatable(n, mt)` で設定する。`Some` の間は常時 GC ルート。
+    pub number_metatable: Option<GcHandle>,
+    /// ブール型の共有メタテーブル（本家 `global_State.mt[LUA_TBOOLEAN]`）。
+    /// `debug.setmetatable(b, mt)` で設定する。`Some` の間は常時 GC ルート。
+    pub boolean_metatable: Option<GcHandle>,
+    /// nil型の共有メタテーブル（本家 `global_State.mt[LUA_TNIL]`）。
+    /// `debug.setmetatable(nil, mt)` で設定する。`Some` の間は常時 GC ルート。
+    pub nil_metatable: Option<GcHandle>,
     /// GC 起動設定。
     pub gc_config: GcConfig,
 }
@@ -116,6 +125,9 @@ impl GlobalState {
             registry,
             globals,
             string_metatable: None,
+            number_metatable: None,
+            boolean_metatable: None,
+            nil_metatable: None,
             gc_config: GcConfig::default(),
         }
     }
@@ -166,6 +178,15 @@ impl LuaState {
         roots.push(self.global.registry);
         roots.push(self.global.globals);
         if let Some(mt) = self.global.string_metatable {
+            roots.push(mt);
+        }
+        if let Some(mt) = self.global.number_metatable {
+            roots.push(mt);
+        }
+        if let Some(mt) = self.global.boolean_metatable {
+            roots.push(mt);
+        }
+        if let Some(mt) = self.global.nil_metatable {
             roots.push(mt);
         }
         for v in &self.stack {
