@@ -89,4 +89,17 @@ jobs:
       - name: run suite and report pass rate
         env:
           RUA_SUITE_STRICT: "1"
-        run: cargo test -p rua-cli --test official_suite -- --ignored --nocapture
+        run: |
+          set -o pipefail
+          cargo test -p rua-cli --test official_suite -- --ignored --nocapture 2>&1 | tee suite_out.txt
+
+      # パス率をログから拾って Actions のジョブサマリに出す（手書き表の代替）。
+      - name: write pass rate to job summary
+        if: always()
+        run: |
+          {
+            echo "## 公式 Lua 5.1 テストスイート パス率"
+            echo '```'
+            grep -E "pass:|fail:|crash:|timeout:" suite_out.txt || echo "(集計行が見つかりません)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
