@@ -46,6 +46,7 @@ pub fn open(state: &mut LuaState) {
     aux::register(state, g, "load", l_load);
     aux::register(state, g, "loadfile", l_loadfile);
     aux::register(state, g, "dofile", l_dofile);
+    aux::register(state, g, "collectgarbage", l_collectgarbage);
 
     // _G はグローバル環境テーブル自身。
     aux::set_field(state, g, "_G", Value::GcRef(state.global.globals));
@@ -638,4 +639,48 @@ fn l_dofile(state: &mut LuaState) -> LuaResult<i32> {
     let f = compile_to_function(state, &src, &name).map_err(|e| aux::rt_error(state, e))?;
     let rets = crate::vm::call(state, f, &[])?;
     aux::ret(state, rets)
+}
+
+// ============================================================================
+// collectgarbage（本家 lbaselib.c `luaB_collectgarbage`）
+// ============================================================================
+
+/// `collectgarbage([opt [, arg]])` — GC 制御。
+///
+/// 現状の rua は実行中に GC を起動していない（ルート集合の収集が未配線, #17）。
+/// 不完全なルートで `Heap::collect` を呼ぶと生存オブジェクトを誤回収して壊れるため、
+/// `collect`/`step` は **安全な no-op**（実回収しない）とし、各オプションは本家準拠の
+/// 形（型・既定値）で値を返す。`count` はメモリ会計未実装のため生存オブジェクト数を
+/// KB の近似として返す（Lua 5.1 は単一の数値を返す）。
+fn l_collectgarbage(state: &mut LuaState) -> LuaResult<i32> {
+    let args = aux::args_vec(state);
+    let opt = match aux::opt_value(&args, 0) {
+        Value::Nil => b"collect".to_vec(),
+        Value::GcRef(GcHandle::Str(k)) => state
+            .global
+            .heap
+            .get_str(k)
+            .map(|s| s.as_bytes().to_vec())
+            .unwrap_or_default(),
+        _ => {
+            return Err(aux::arg_error(
+                state,
+                1,
+                "collectgarbage",
+                "string expected",
+            ));
+        }
+    };
+    let result = match opt.as_slice() {
+        // 実回収は #17（ルート収集）待ち。ここでは安全に何もしない。
+        b"collect" | b"" => Value::Number(0.0),
+        // KB 近似（生存オブジェクト数）。
+        b"count" => Value::Number(state.global.heap.live_object_count() as f64),
+        b"step" => Value::Boolean(false),
+        b"setpause" => Value::Number(200.0),
+        b"setstepmul" => Value::Number(100.0),
+        b"stop" | b"restart" => Value::Number(0.0),
+        _ => Value::Number(0.0),
+    };
+    aux::ret(state, vec![result])
 }
