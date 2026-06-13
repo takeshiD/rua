@@ -255,7 +255,7 @@ impl Lua {
             .state
             .global
             .heap
-            .alloc_closure(Closure::Lua(LuaClosure::new(Rc::new(proto))));
+            .alloc_closure(Closure::Lua(LuaClosure::new_with_env(Rc::new(proto), self.state.global.globals)));
         Ok(Function(h))
     }
 }

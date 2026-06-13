@@ -129,7 +129,8 @@ fn package_str_field(state: &mut LuaState, field: &str) -> Option<Vec<u8>> {
 fn load_chunk(state: &mut LuaState, src: &[u8], chunkname: &str) -> Result<Value, String> {
     match compile(&mut state.global.heap, src, chunkname) {
         Ok(proto) => {
-            let closure = LuaClosure::new(Rc::new(proto));
+            let env = state.global.globals;
+            let closure = LuaClosure::new_with_env(Rc::new(proto), env);
             let h = state.global.heap.alloc_closure(Closure::Lua(closure));
             Ok(Value::GcRef(h))
         }

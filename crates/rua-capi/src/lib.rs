@@ -1119,6 +1119,7 @@ fn call_c_function(
         current_line: 0,
         native_closure: None,
         lua_frame: None,
+        env: None,
     });
     let _ = take_pending_error(); // 念のためクリア
     let p = cs.as_ptr();
@@ -1370,11 +1371,12 @@ pub unsafe extern "C" fn lua_next(s: *mut lua_State, idx: c_int) -> c_int {
 pub(crate) fn load_buffer(cs: &mut CapiState, src: &[u8], chunkname: &str) -> c_int {
     match rua_core::compiler::compile(&mut cs.lua.global.heap, src, chunkname) {
         Ok(proto) => {
+            let env = cs.lua.global.globals;
             let h = cs
                 .lua
                 .global
                 .heap
-                .alloc_closure(Closure::Lua(LuaClosure::new(Rc::new(proto))));
+                .alloc_closure(Closure::Lua(LuaClosure::new_with_env(Rc::new(proto), env)));
             cs.push(CoreValue::GcRef(h));
             LUA_OK
         }

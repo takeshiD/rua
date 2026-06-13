@@ -56,6 +56,8 @@ pub struct LuaFrameState {
     pub open: Vec<(usize, Upvalue)>,
     /// 多値操作で動くスタックトップ（絶対インデックス）。
     pub top: usize,
+    /// このフレームの関数環境テーブル（Lua 5.1 の fenv）。
+    pub env: crate::gc::GcHandle,
 }
 
 /// コールスタックのフレーム（本家 `CallInfo` 相当）。
@@ -79,6 +81,10 @@ pub struct CallInfo {
     /// コルーチン yield 時に保存する Lua フレームの実行状態。
     /// Lua クロージャフレームが yield で中断されたときのみ `Some`。
     pub lua_frame: Option<Box<LuaFrameState>>,
+    /// このフレームが Lua クロージャである場合の関数環境テーブルハンドル。
+    /// `setfenv`/`getfenv` がレベル指定でフレームを辿るために使う。
+    /// ネイティブ関数フレームは `None`。
+    pub env: Option<crate::gc::GcHandle>,
 }
 
 /// 全スレッド共有の状態（本家 `global_State`）。
@@ -237,6 +243,56 @@ impl LuaState {
             Some(Closure::Native(nc)) => nc.upvalue_count(),
             _ => 0,
         }
+    }
+
+    /// `level` 段上のコールフレーム（Lua クロージャフレーム）の環境テーブルを返す。
+    ///
+    /// level 0 = スレッドのグローバル環境（`state.global.globals`）。
+    /// level 1 = 現在の関数（`setfenv`/`getfenv` からの呼び出し元が Lua 関数のとき）。
+    /// call_info の末尾から数えて `level` 段目の Lua フレームを探す。
+    ///
+    /// 本家の動作に合わせ、ネイティブフレームはスキップする。
+    pub fn fenv_at_level(&self, level: usize) -> Option<GcHandle> {
+        if level == 0 {
+            return Some(self.global.globals);
+        }
+        let n = self.call_info.len();
+        // 末尾（= 現在のネイティブフレーム）からスキップしてレベルを数える。
+        let mut lua_count = 0usize;
+        for i in (0..n).rev() {
+            let ci = &self.call_info[i];
+            if ci.env.is_some() {
+                // Lua フレーム
+                lua_count += 1;
+                if lua_count == level {
+                    return ci.env;
+                }
+            }
+        }
+        None
+    }
+
+    /// `level` 段上の Lua クロージャフレームの環境テーブルを `new_env` に差し替える。
+    /// level 0 はスレッドのグローバル環境（`state.global.globals`）を差し替える。
+    /// 対象フレームが見つからなければ false を返す。
+    pub fn set_fenv_at_level(&mut self, level: usize, new_env: GcHandle) -> bool {
+        if level == 0 {
+            self.global.globals = new_env;
+            return true;
+        }
+        let n = self.call_info.len();
+        let mut lua_count = 0usize;
+        for i in (0..n).rev() {
+            let ci = &self.call_info[i];
+            if ci.env.is_some() {
+                lua_count += 1;
+                if lua_count == level {
+                    self.call_info[i].env = Some(new_env);
+                    return true;
+                }
+            }
+        }
+        false
     }
 }
 

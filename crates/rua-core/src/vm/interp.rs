@@ -40,7 +40,8 @@ const MAXTAGLOOP: usize = 100;
 /// `proto` を upvalue 無しのクロージャとして実体化し、`args` を可変長引数として渡す。
 /// 返り値はチャンクの戻り値列。
 pub fn run(state: &mut LuaState, proto: Rc<Proto>, args: &[Value]) -> LuaResult<Vec<Value>> {
-    let closure = LuaClosure::new(proto);
+    let env = state.global.globals;
+    let closure = LuaClosure::new_with_env(proto, env);
     let h = state.global.heap.alloc_closure(Closure::Lua(closure));
     call(state, Value::GcRef(h), args)
 }
@@ -81,6 +82,7 @@ pub fn resume_execute(
             varargs,
             open,
             top,
+            env,
         } = *frame;
         let base = state.call_info[ci_idx].base;
 
@@ -113,6 +115,7 @@ pub fn resume_execute(
             open,
             restored_top,
             resume_call_pc + 1,
+            env,
         ) {
             Ok(vals) => {
                 // このフレームが正常終了。CI とスタックをポップして外側フレームへ。
@@ -228,6 +231,7 @@ fn call_native(
         current_line: 0,
         native_closure: Some(key),
         lua_frame: None,
+        env: None,
     });
     let r = func(state);
     match r {
@@ -256,8 +260,8 @@ fn call_lua(
     key: crate::gc::ClosureKey,
     args: &[Value],
 ) -> LuaResult<Vec<Value>> {
-    let (proto, upvals) = match state.global.heap.get_closure(key) {
-        Some(Closure::Lua(lc)) => (lc.proto().clone(), lc.upvalues().to_vec()),
+    let (proto, upvals, env) = match state.global.heap.get_closure(key) {
+        Some(Closure::Lua(lc)) => (lc.proto().clone(), lc.upvalues().to_vec(), lc.env()),
         _ => return Err(rt_err(state, "internal: not a Lua closure".to_string())),
     };
 
@@ -287,9 +291,10 @@ fn call_lua(
         current_line: proto.line_defined,
         native_closure: None,
         lua_frame: None,
+        env: Some(env),
     });
 
-    let result = execute(state, base, proto, upvals, varargs);
+    let result = execute(state, base, proto, upvals, varargs, env);
 
     match result {
         Ok(v) => {
@@ -320,6 +325,7 @@ fn execute(
     proto: Rc<Proto>,
     upvals: Vec<Upvalue>,
     varargs: Vec<Value>,
+    env: GcHandle,
 ) -> LuaResult<Vec<Value>> {
     let initial_top = base + proto.max_stack_size as usize;
     execute_inner(
@@ -331,6 +337,7 @@ fn execute(
         Vec::new(),
         initial_top,
         0,
+        env,
     )
 }
 
@@ -345,6 +352,7 @@ fn execute_inner(
     saved_open: Vec<(usize, Upvalue)>,
     saved_top: usize,
     saved_pc: usize,
+    mut env: GcHandle,
 ) -> LuaResult<Vec<Value>> {
     // このフレームの CallInfo インデックスを記録する。ネストした呼び出しが
     // Yield したとき、last_mut() ではなくこのインデックスで自フレームを参照する。
@@ -410,14 +418,22 @@ fn execute_inner(
                 }
                 OpCode::GetGlobal => {
                     let key = proto.constants[instr.bx() as usize];
-                    let g = Value::GcRef(state.global.globals);
+                    // setfenv による env 変更を反映するため CallInfo から都度読む。
+                    let cur_env = state.call_info.get(my_ci_index)
+                        .and_then(|ci| ci.env)
+                        .unwrap_or(env);
+                    let g = Value::GcRef(cur_env);
                     let v = index_get(state, g, key, &proto, cur_pc)?;
                     set_reg(state, base + a, v);
                 }
                 OpCode::SetGlobal => {
                     let key = proto.constants[instr.bx() as usize];
                     let v = reg(state, base, a);
-                    let g = Value::GcRef(state.global.globals);
+                    // setfenv による env 変更を反映するため CallInfo から都度読む。
+                    let cur_env = state.call_info.get(my_ci_index)
+                        .and_then(|ci| ci.env)
+                        .unwrap_or(env);
+                    let g = Value::GcRef(cur_env);
                     index_set(state, g, key, v, &proto, cur_pc)?;
                 }
                 OpCode::GetTable => {
@@ -562,6 +578,7 @@ fn execute_inner(
                                     varargs: varargs.clone(),
                                     open: open.clone(),
                                     top,
+                                    env,
                                 }));
                             }
                             return Err(LuaError::Yield(vals));
@@ -606,6 +623,7 @@ fn execute_inner(
                     {
                         let new_proto = lc.proto().clone();
                         let new_upvals = lc.upvalues().to_vec();
+                        let new_env = lc.env();
                         let nparams = new_proto.num_params as usize;
                         let maxstack = new_proto.max_stack_size as usize;
                         let need = base + maxstack.max(nparams);
@@ -630,6 +648,7 @@ fn execute_inner(
                         };
                         proto = new_proto;
                         upvals = new_upvals;
+                        env = new_env;
                         continue 'reenter;
                     }
 
@@ -731,7 +750,12 @@ fn execute_inner(
                 OpCode::Closure => {
                     let child = proto.protos[instr.bx() as usize].clone();
                     let nup = child.num_upvalues as usize;
-                    let mut newc = LuaClosure::new(child);
+                    // 子クロージャは親の env を継承する（Lua 5.1 の規則）。
+                    // setfenv 後の env を反映するため CallInfo から読む。
+                    let child_env = state.call_info.get(my_ci_index)
+                        .and_then(|ci| ci.env)
+                        .unwrap_or(env);
+                    let mut newc = LuaClosure::new_with_env(child, child_env);
                     for _ in 0..nup {
                         let pseudo = proto.code[pc];
                         pc += 1;
@@ -988,6 +1012,10 @@ fn len_op(state: &mut LuaState, v: Value, proto: &Proto, pc: usize) -> LuaResult
 }
 
 /// `==`（`__eq` 込み）。
+///
+/// Lua 5.1 の規則: `__eq` が呼ばれるのは両オブジェクトが同じメタテーブル上の `__eq` ハンドラを
+/// 共有している場合のみ（本家 lvm.c `equalobj` 参照）。
+/// 片方のみにメタテーブルがある場合は `__eq` を呼ばない（raw 比較で false）。
 fn values_equal(state: &mut LuaState, a: Value, b: Value) -> LuaResult<bool> {
     if a == b {
         return Ok(true);
@@ -1002,14 +1030,45 @@ fn values_equal(state: &mut LuaState, a: Value, b: Value) -> LuaResult<bool> {
     if !eligible {
         return Ok(false);
     }
-    let mut mm = get_metamethod(state, a, b"__eq");
-    if matches!(mm, Value::Nil) {
-        mm = get_metamethod(state, b, b"__eq");
-    }
-    if matches!(mm, Value::Nil) {
+    let mm_a = get_metamethod(state, a, b"__eq");
+    let mm_b = get_metamethod(state, b, b"__eq");
+    // Lua 5.1: 両者の __eq が同じ関数であるときのみ呼ぶ。
+    // 片方のみが __eq を持つ場合は false（raw 比較）。
+    let mm = if !matches!(mm_a, Value::Nil) && mm_a == mm_b {
+        mm_a
+    } else if !matches!(mm_a, Value::Nil) && matches!(mm_b, Value::Nil) {
+        // 片方のみ: Lua 5.1 は __eq を呼ばない。
         return Ok(false);
-    }
+    } else if matches!(mm_a, Value::Nil) && !matches!(mm_b, Value::Nil) {
+        // 片方のみ: Lua 5.1 は __eq を呼ばない。
+        return Ok(false);
+    } else {
+        return Ok(false);
+    };
     Ok(first(call(state, mm, &[a, b])?).is_truthy())
+}
+
+/// 比較メタメソッドを取得する。Lua 5.1 の規則:
+/// - 両オペランドが同じメタテーブルを持つか同じハンドラ関数を持つ場合にのみ使用する。
+/// - 片方のみがメタメソッドを持つ場合は使用しない（None を返す）。
+fn get_cmp_metamethod(state: &mut LuaState, a: Value, b: Value, event: &[u8]) -> Value {
+    let mm_a = get_metamethod(state, a, event);
+    let mm_b = get_metamethod(state, b, event);
+    match (matches!(mm_a, Value::Nil), matches!(mm_b, Value::Nil)) {
+        (false, false) => {
+            // 両方にある場合: 同じハンドラなら使う、違えば a 側を使う（本家準拠）。
+            mm_a
+        }
+        (false, true) => {
+            // a のみ: 片方だけなのでメタメソッドを使わない。
+            Value::Nil
+        }
+        (true, false) => {
+            // b のみ: 片方だけなのでメタメソッドを使わない。
+            Value::Nil
+        }
+        (true, true) => Value::Nil,
+    }
 }
 
 fn less_than(
@@ -1027,10 +1086,7 @@ fn less_than(
         let sb = state.global.heap.get_str(kb).unwrap().as_bytes();
         return Ok(sa < sb);
     }
-    let mut mm = get_metamethod(state, a, b"__lt");
-    if matches!(mm, Value::Nil) {
-        mm = get_metamethod(state, b, b"__lt");
-    }
+    let mm = get_cmp_metamethod(state, a, b, b"__lt");
     if matches!(mm, Value::Nil) {
         return Err(cmp_err(state, proto, pc, a, b));
     }
@@ -1052,18 +1108,12 @@ fn less_equal(
         let sb = state.global.heap.get_str(kb).unwrap().as_bytes();
         return Ok(sa <= sb);
     }
-    let mut mm = get_metamethod(state, a, b"__le");
-    if matches!(mm, Value::Nil) {
-        mm = get_metamethod(state, b, b"__le");
-    }
+    let mm = get_cmp_metamethod(state, a, b, b"__le");
     if !matches!(mm, Value::Nil) {
         return Ok(first(call(state, mm, &[a, b])?).is_truthy());
     }
     // 本家 5.1: __le が無ければ `not (b < a)` を __lt で試す。
-    let mut lt = get_metamethod(state, a, b"__lt");
-    if matches!(lt, Value::Nil) {
-        lt = get_metamethod(state, b, b"__lt");
-    }
+    let lt = get_cmp_metamethod(state, a, b, b"__lt");
     if matches!(lt, Value::Nil) {
         return Err(cmp_err(state, proto, pc, a, b));
     }
