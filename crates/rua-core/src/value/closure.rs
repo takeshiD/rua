@@ -13,7 +13,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use crate::gc::{Trace, Tracer};
+use crate::gc::{GcHandle, Trace, Tracer};
 use crate::state::NativeFn;
 use crate::value::Value;
 use crate::vm::proto::Proto;
@@ -46,15 +46,21 @@ pub struct LuaClosure {
     proto: Rc<Proto>,
     /// 捕捉した upvalue 群（`proto.num_upvalues` 個）。
     upvalues: Vec<Upvalue>,
+    /// 関数の環境テーブル（本家 Lua 5.1 の `LClosure.g.env`）。
+    /// `GetGlobal`/`SetGlobal` はこのテーブルに対して index_get/index_set する。
+    /// デフォルトはグローバル環境テーブル。
+    pub env: GcHandle,
 }
 
 impl LuaClosure {
     /// プロトタイプからクロージャを作る（upvalue は呼び出し側が [`Self::push_upvalue`] で束ねる）。
-    pub fn new(proto: Rc<Proto>) -> Self {
+    /// env にはグローバル環境テーブルのハンドルを渡す。
+    pub fn new_with_env(proto: Rc<Proto>, env: GcHandle) -> Self {
         let cap = proto.num_upvalues as usize;
         LuaClosure {
             proto,
             upvalues: Vec::with_capacity(cap),
+            env,
         }
     }
 
@@ -76,6 +82,16 @@ impl LuaClosure {
     /// upvalue を 1 つ束ねる（`CLOSURE` 直後の捕捉疑似命令処理から呼ぶ）。
     pub fn push_upvalue(&mut self, uv: Upvalue) {
         self.upvalues.push(uv);
+    }
+
+    /// 関数の環境テーブルハンドルを返す。
+    pub fn env(&self) -> GcHandle {
+        self.env
+    }
+
+    /// 関数の環境テーブルハンドルを差し替える（`setfenv` 用）。
+    pub fn set_env(&mut self, env: GcHandle) {
+        self.env = env;
     }
 }
 
@@ -154,6 +170,8 @@ impl Trace for Closure {
             Closure::Lua(c) => {
                 // proto の定数表（インターン文字列を含む）を mark。
                 c.proto.trace_constants(tracer);
+                // 環境テーブルを mark（setfenv で別テーブルに差し替えられる場合があるため必須）。
+                tracer.mark(c.env);
                 // closed upvalue が保持する値を mark（open は捕捉元スタックが別途ルート）。
                 for uv in &c.upvalues {
                     if let UpvalueState::Closed(v) = &*uv.borrow() {

@@ -252,7 +252,8 @@ fn index_metamethod_fallback() {
     });
 
     // t を引数に渡して呼ぶ。
-    let closure = Closure::Lua(rua_core::value::closure::LuaClosure::new(p));
+    let env = state.global.globals;
+    let closure = Closure::Lua(rua_core::value::closure::LuaClosure::new_with_env(p, env));
     let ch = state.global.heap.alloc_closure(closure);
     let res = call(&mut state, Value::GcRef(ch), &[Value::GcRef(t)]).unwrap();
     assert_eq!(num(&res[0]), 42.0);
@@ -421,7 +422,8 @@ fn string_indexing_uses_string_metatable() {
         ..Proto::default()
     });
 
-    let closure = Closure::Lua(rua_core::value::closure::LuaClosure::new(p));
+    let env = state.global.globals;
+    let closure = Closure::Lua(rua_core::value::closure::LuaClosure::new_with_env(p, env));
     let ch = state.global.heap.alloc_closure(closure);
     let arg = state.new_string(b"hi");
     let res = call(&mut state, Value::GcRef(ch), &[arg]).unwrap();

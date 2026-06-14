@@ -46,6 +46,9 @@ pub fn open(state: &mut LuaState) {
     aux::register(state, g, "load", l_load);
     aux::register(state, g, "loadfile", l_loadfile);
     aux::register(state, g, "dofile", l_dofile);
+    aux::register(state, g, "collectgarbage", l_collectgarbage);
+    aux::register(state, g, "setfenv", l_setfenv);
+    aux::register(state, g, "getfenv", l_getfenv);
 
     // _G はグローバル環境テーブル自身。
     aux::set_field(state, g, "_G", Value::GcRef(state.global.globals));
@@ -86,7 +89,14 @@ fn l_type(state: &mut LuaState) -> LuaResult<i32> {
 fn l_tostring(state: &mut LuaState) -> LuaResult<i32> {
     let args = aux::args_vec(state);
     let v = aux::opt_value(&args, 0);
-    let bytes = aux::tostring_value(state, v)?;
+    // Lua 5.1: __tostring メタメソッドの戻り値はそのまま返す（文字列チェックなし）。
+    let mm = aux::get_metafield(state, v, "__tostring");
+    if !matches!(mm, Value::Nil) {
+        let res = crate::vm::call(state, mm, &[v])?;
+        let first = res.into_iter().next().unwrap_or(Value::Nil);
+        return aux::ret(state, vec![first]);
+    }
+    let bytes = aux::raw_tostring(state, v);
     let s = state.new_string(&bytes);
     aux::ret(state, vec![s])
 }
@@ -517,7 +527,8 @@ fn l_unpack(state: &mut LuaState) -> LuaResult<i32> {
 fn compile_to_function(state: &mut LuaState, src: &[u8], chunkname: &str) -> Result<Value, String> {
     match compile(&mut state.global.heap, src, chunkname) {
         Ok(proto) => {
-            let closure = LuaClosure::new(Rc::new(proto));
+            let env = state.global.globals;
+            let closure = LuaClosure::new_with_env(Rc::new(proto), env);
             let h = state.global.heap.alloc_closure(Closure::Lua(closure));
             Ok(Value::GcRef(h))
         }
@@ -638,4 +649,146 @@ fn l_dofile(state: &mut LuaState) -> LuaResult<i32> {
     let f = compile_to_function(state, &src, &name).map_err(|e| aux::rt_error(state, e))?;
     let rets = crate::vm::call(state, f, &[])?;
     aux::ret(state, rets)
+}
+
+// ============================================================================
+// setfenv / getfenv（Lua 5.1 function environment）
+// ============================================================================
+
+/// `setfenv(f, table)` — 関数 f の環境を table に設定する。
+///
+/// - f が関数値のとき: そのクロージャの env を差し替え、f を返す。
+/// - f が数値 n のとき: 呼び出しスタックの n 段上の Lua フレームの env を差し替える。
+///   n == 1 は setfenv の呼び出し元、n == 0 はスレッドのグローバル環境。
+/// - 第2引数が table でなければ引数エラー。
+fn l_setfenv(state: &mut LuaState) -> LuaResult<i32> {
+    let args = aux::args_vec(state);
+    // 第2引数: table
+    let new_env_handle = match aux::opt_value(&args, 1) {
+        Value::GcRef(h @ GcHandle::Table(_)) => h,
+        other => {
+            return Err(aux::arg_error(
+                state,
+                2,
+                "setfenv",
+                &format!("table expected, got {}", aux::type_name(other)),
+            ));
+        }
+    };
+
+    match aux::opt_value(&args, 0) {
+        // 数値レベル指定
+        Value::Number(n) => {
+            let level = n.trunc() as usize;
+            // level 0 はスレッドのグローバル環境を差し替える
+            // level 1+ は呼び出しスタックを辿る
+            let ok = state.set_fenv_at_level(level, new_env_handle);
+            if !ok {
+                return Err(aux::arg_error(state, 1, "setfenv", "invalid level"));
+            }
+            // レベル指定時は返り値なし（本家準拠）。
+            aux::ret0(state)
+        }
+        // 関数値指定
+        Value::GcRef(GcHandle::Closure(ck)) => {
+            // Lua クロージャの env を差し替える。
+            // ネイティブ関数は env を持たないが、寛容に扱う（エラーにしない）。
+            match state.global.heap.get_closure_mut(ck) {
+                Some(Closure::Lua(lc)) => {
+                    lc.set_env(new_env_handle);
+                }
+                Some(Closure::Native(_)) => {
+                    // ネイティブ関数は env 差し替え不可だが、寛容に無視。
+                }
+                None => {}
+            }
+            let f = aux::opt_value(&args, 0);
+            aux::ret(state, vec![f])
+        }
+        other => Err(aux::arg_error(
+            state,
+            1,
+            "setfenv",
+            &format!("number or function expected, got {}", aux::type_name(other)),
+        )),
+    }
+}
+
+/// `getfenv([f])` — 関数 f の環境を返す。
+///
+/// - f が関数値のとき: そのクロージャの env テーブルを返す。
+/// - f が数値 n のとき: 呼び出しスタックの n 段上の Lua フレームの env を返す。
+///   n == 0 はスレッドのグローバル環境。省略時は n == 1（呼び出し元）。
+fn l_getfenv(state: &mut LuaState) -> LuaResult<i32> {
+    let args = aux::args_vec(state);
+    let fenv = match aux::opt_value(&args, 0) {
+        Value::Nil => {
+            // 省略時は level 1（呼び出し元）。
+            state.fenv_at_level(1)
+        }
+        Value::Number(n) => {
+            let level = n.trunc() as usize;
+            state.fenv_at_level(level)
+        }
+        Value::GcRef(GcHandle::Closure(ck)) => {
+            match state.global.heap.get_closure(ck) {
+                Some(Closure::Lua(lc)) => Some(lc.env()),
+                // ネイティブ関数は env を持たない → グローバル環境を返す（寛容）。
+                Some(Closure::Native(_)) => Some(state.global.globals),
+                None => None,
+            }
+        }
+        _ => {
+            // 省略時 level 1 と同じ扱い。
+            state.fenv_at_level(1)
+        }
+    };
+    match fenv {
+        Some(h) => aux::ret(state, vec![Value::GcRef(h)]),
+        None => aux::ret(state, vec![Value::Nil]),
+    }
+}
+
+// ============================================================================
+// collectgarbage（本家 lbaselib.c `luaB_collectgarbage`）
+// ============================================================================
+
+/// `collectgarbage([opt [, arg]])` — GC 制御。
+///
+/// 現状の rua は実行中に GC を起動していない（ルート集合の収集が未配線, #17）。
+/// 不完全なルートで `Heap::collect` を呼ぶと生存オブジェクトを誤回収して壊れるため、
+/// `collect`/`step` は **安全な no-op**（実回収しない）とし、各オプションは本家準拠の
+/// 形（型・既定値）で値を返す。`count` はメモリ会計未実装のため生存オブジェクト数を
+/// KB の近似として返す（Lua 5.1 は単一の数値を返す）。
+fn l_collectgarbage(state: &mut LuaState) -> LuaResult<i32> {
+    let args = aux::args_vec(state);
+    let opt = match aux::opt_value(&args, 0) {
+        Value::Nil => b"collect".to_vec(),
+        Value::GcRef(GcHandle::Str(k)) => state
+            .global
+            .heap
+            .get_str(k)
+            .map(|s| s.as_bytes().to_vec())
+            .unwrap_or_default(),
+        _ => {
+            return Err(aux::arg_error(
+                state,
+                1,
+                "collectgarbage",
+                "string expected",
+            ));
+        }
+    };
+    let result = match opt.as_slice() {
+        // 実回収は #17（ルート収集）待ち。ここでは安全に何もしない。
+        b"collect" | b"" => Value::Number(0.0),
+        // KB 近似（生存オブジェクト数）。
+        b"count" => Value::Number(state.global.heap.live_object_count() as f64),
+        b"step" => Value::Boolean(false),
+        b"setpause" => Value::Number(200.0),
+        b"setstepmul" => Value::Number(100.0),
+        b"stop" | b"restart" => Value::Number(0.0),
+        _ => Value::Number(0.0),
+    };
+    aux::ret(state, vec![result])
 }
