@@ -25,7 +25,21 @@ use crate::value::{LuaType, Value};
 use super::opcode::{self, LFIELDS_PER_FLUSH, OpCode};
 use super::proto::Proto;
 
-/// Lua 関数呼び出しの最大ネスト深度（本家 `LUAI_MAXCCALLS` 相当の保護）。
+/// Lua 関数/ネイティブ呼び出しの最大ネスト深度。本家 Lua 5.1 の `LUAI_MAXCALLS`
+/// （`luaconf.h` の既定値 200）に合わせる。
+///
+/// rua の VM はネストした呼び出しを **Rust の関数再帰**として実行するため、無限/過大な
+/// Lua 再帰を放置すると OS/Rust スタックを溢れさせ、**プロセスがクラッシュ**
+/// （abort/segfault = 互換性方針上の最悪結果）してしまう。この上限に達した時点で
+/// `call()` 冒頭が捕捉可能な `"stack overflow"` エラーへ変換し、クラッシュを防ぐ。
+///
+/// 値のトレードオフ:
+/// - 小さすぎる → 正当だが深い再帰で誤って `stack overflow`（偽陽性）。
+/// - 大きすぎる → 上限到達前に実 Rust スタックが先に溢れ、捕捉不能なクラッシュになる。
+///
+/// PUC-Rio が検証済みの既定値 **200** を採用する（本家との挙動一致のため。実測でも
+/// 深さ 200 の非末尾再帰は `pcall` で `stack overflow` を捕捉でき、クラッシュしないことを
+/// 確認済み, 2026-06-14）。値を変更する場合は本コメントと根拠を必ず更新すること。
 pub const MAX_CALL_DEPTH: usize = 200;
 
 /// `__index`/`__newindex` チェーンを辿る最大回数（本家 `MAXTAGLOOP`）。
@@ -1259,6 +1273,10 @@ fn metatable_of(state: &LuaState, v: Value) -> Option<crate::gc::TableKey> {
         // 文字列は型ごとの共有メタテーブル（`global_State.string_metatable`）を参照する。
         // 本体の登録は lua-stdlib が string ライブラリ初期化時に行う。
         Value::GcRef(GcHandle::Str(_)) => state.global.string_metatable,
+        // 数値・boolean・nil の型共有メタテーブル（debug.setmetatable で設定）。
+        Value::Number(_) => state.global.number_metatable,
+        Value::Boolean(_) => state.global.boolean_metatable,
+        Value::Nil => state.global.nil_metatable,
         _ => None,
     };
     match mt {

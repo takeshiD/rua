@@ -281,6 +281,10 @@ pub fn metatable_handle(state: &LuaState, v: Value) -> Option<TableKey> {
             .and_then(|u| u.metatable()),
         // 文字列は型共有メタテーブルを参照（VM の `metatable_of` と整合）。
         Value::GcRef(GcHandle::Str(_)) => state.global.string_metatable,
+        // 数値・boolean・nil の型共有メタテーブル（debug.setmetatable で設定）。
+        Value::Number(_) => state.global.number_metatable,
+        Value::Boolean(_) => state.global.boolean_metatable,
+        Value::Nil => state.global.nil_metatable,
         _ => None,
     };
     match mt {

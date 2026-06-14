@@ -14,6 +14,7 @@ use crate::state::LuaState;
 use crate::value::Value;
 use crate::value::closure::{Closure, LuaClosure};
 use crate::value::convert::str_to_number;
+use crate::value::userdata::Userdata;
 
 use super::aux;
 
@@ -49,6 +50,7 @@ pub fn open(state: &mut LuaState) {
     aux::register(state, g, "collectgarbage", l_collectgarbage);
     aux::register(state, g, "setfenv", l_setfenv);
     aux::register(state, g, "getfenv", l_getfenv);
+    aux::register(state, g, "newproxy", l_newproxy);
 
     // _G はグローバル環境テーブル自身。
     aux::set_field(state, g, "_G", Value::GcRef(state.global.globals));
@@ -88,6 +90,10 @@ fn l_type(state: &mut LuaState) -> LuaResult<i32> {
 
 fn l_tostring(state: &mut LuaState) -> LuaResult<i32> {
     let args = aux::args_vec(state);
+    // 本家 Lua 5.1: 引数なしはエラー。
+    if args.is_empty() {
+        return Err(aux::arg_error(state, 1, "tostring", "value expected"));
+    }
     let v = aux::opt_value(&args, 0);
     // Lua 5.1: __tostring メタメソッドの戻り値はそのまま返す（文字列チェックなし）。
     let mm = aux::get_metafield(state, v, "__tostring");
@@ -103,6 +109,10 @@ fn l_tostring(state: &mut LuaState) -> LuaResult<i32> {
 
 fn l_tonumber(state: &mut LuaState) -> LuaResult<i32> {
     let args = aux::args_vec(state);
+    // 本家 Lua 5.1: 引数なしはエラー（本家 luaB_tonumber の動作）。
+    if args.is_empty() {
+        return Err(aux::arg_error(state, 1, "tonumber", "value expected"));
+    }
     let v = aux::opt_value(&args, 0);
     if matches!(aux::opt_value(&args, 1), Value::Nil) {
         // 基数なし: number はそのまま、数値文字列は変換、その他 nil。
@@ -524,6 +534,8 @@ fn l_unpack(state: &mut LuaState) -> LuaResult<i32> {
 
 /// ソースをコンパイルしてメインチャンクの関数値を作る。
 /// 成功で関数値、失敗で構文エラーメッセージ（文字列）を返す。
+///
+/// エラーメッセージは本家に倣い `[chunkname]:line: message` 形式で返す（"syntax error: " プレフィックスなし）。
 fn compile_to_function(state: &mut LuaState, src: &[u8], chunkname: &str) -> Result<Value, String> {
     match compile(&mut state.global.heap, src, chunkname) {
         Ok(proto) => {
@@ -532,6 +544,7 @@ fn compile_to_function(state: &mut LuaState, src: &[u8], chunkname: &str) -> Res
             let h = state.global.heap.alloc_closure(Closure::Lua(closure));
             Ok(Value::GcRef(h))
         }
+        Err(crate::error::LuaError::Syntax(s)) => Err(s),
         Err(e) => Err(format!("{e}")),
     }
 }
@@ -747,6 +760,44 @@ fn l_getfenv(state: &mut LuaState) -> LuaResult<i32> {
         Some(h) => aux::ret(state, vec![Value::GcRef(h)]),
         None => aux::ret(state, vec![Value::Nil]),
     }
+}
+
+// ============================================================================
+// newproxy（Lua 5.1 の undocumented function: 軽量 userdata プロキシ）
+// ============================================================================
+
+/// `newproxy([v])` — 新しいユーザーデータを作成する。
+///
+/// - 引数なし / false: メタテーブルなしのユーザーデータ。
+/// - true: 新しいメタテーブルを作成して付けたユーザーデータ。
+/// - userdata: そのユーザーデータと同じメタテーブルを共有する新しいユーザーデータ。
+fn l_newproxy(state: &mut LuaState) -> LuaResult<i32> {
+    let args = aux::args_vec(state);
+    let v = aux::opt_value(&args, 0);
+
+    let mt = match v {
+        // true: 新しいメタテーブルを作成。
+        Value::Boolean(true) => {
+            let tbl = state
+                .global
+                .heap
+                .alloc_table(crate::value::table::Table::new());
+            Some(tbl)
+        }
+        // userdata: そのメタテーブルを共有する。
+        Value::GcRef(GcHandle::Userdata(k)) => state
+            .global
+            .heap
+            .get_userdata(k)
+            .and_then(|u| u.metatable()),
+        // false / nil / その他: メタテーブルなし。
+        _ => None,
+    };
+
+    let mut ud = Userdata::new(Box::new(()));
+    ud.set_metatable(mt);
+    let h = state.global.heap.alloc_userdata(ud);
+    aux::ret(state, vec![Value::GcRef(h)])
 }
 
 // ============================================================================
