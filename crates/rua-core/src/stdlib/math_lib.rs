@@ -43,6 +43,8 @@ pub fn open(state: &mut LuaState) {
     aux::register(state, mk, "pow", l_pow);
     aux::register(state, mk, "fmod", l_fmod);
     aux::register(state, mk, "modf", l_modf);
+    aux::register(state, mk, "ldexp", l_ldexp);
+    aux::register(state, mk, "frexp", l_frexp);
     aux::register(state, mk, "max", l_max);
     aux::register(state, mk, "min", l_min);
     aux::register(state, mk, "deg", l_deg);
@@ -66,6 +68,37 @@ fn unary(state: &mut LuaState, fname: &str, f: impl Fn(f64) -> f64) -> LuaResult
     let args = aux::args_vec(state);
     let x = aux::check_number(state, &args, 0, fname)?;
     aux::ret(state, vec![Value::Number(f(x))])
+}
+
+/// `math.frexp(x)`: x = m * 2^e（0.5 <= |m| < 1, または m=0/非有限はそのまま）。
+fn frexp(x: f64) -> (f64, i32) {
+    if x == 0.0 || !x.is_finite() {
+        return (x, 0);
+    }
+    let bits = x.to_bits();
+    let exp = ((bits >> 52) & 0x7ff) as i32;
+    if exp == 0 {
+        // 非正規化数: 2^64 倍して再帰し、指数を補正。
+        let (m, e) = frexp(x * 2.0f64.powi(64));
+        return (m, e - 64);
+    }
+    // 指数部を 1022 に固定して仮数を [0.5, 1) に正規化。
+    let m = f64::from_bits((bits & !(0x7ffu64 << 52)) | (1022u64 << 52));
+    (m, exp - 1022)
+}
+
+fn l_ldexp(state: &mut LuaState) -> LuaResult<i32> {
+    let args = aux::args_vec(state);
+    let m = aux::check_number(state, &args, 0, "ldexp")?;
+    let e = aux::check_int(state, &args, 1, "ldexp")?;
+    aux::ret(state, vec![Value::Number(m * 2.0f64.powi(e as i32))])
+}
+
+fn l_frexp(state: &mut LuaState) -> LuaResult<i32> {
+    let args = aux::args_vec(state);
+    let x = aux::check_number(state, &args, 0, "frexp")?;
+    let (m, e) = frexp(x);
+    aux::ret(state, vec![Value::Number(m), Value::Number(e as f64)])
 }
 
 fn l_abs(state: &mut LuaState) -> LuaResult<i32> {

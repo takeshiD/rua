@@ -697,7 +697,9 @@ pub fn parse_number(text: &str) -> Option<f64> {
     if !ok {
         return None;
     }
-    t.parse::<f64>().ok().filter(|n| n.is_finite())
+    // オーバーフロー（例 `1e400`）は本家 Lua 5.1 同様 inf を返す。
+    // "inf"/"nan" 文字列は上の文字検査（数字・`.`・`eE`・符号のみ許可）で既に排除済み。
+    t.parse::<f64>().ok()
 }
 
 #[cfg(test)]

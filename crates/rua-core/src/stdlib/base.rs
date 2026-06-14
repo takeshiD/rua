@@ -51,6 +51,7 @@ pub fn open(state: &mut LuaState) {
     aux::register(state, g, "setfenv", l_setfenv);
     aux::register(state, g, "getfenv", l_getfenv);
     aux::register(state, g, "newproxy", l_newproxy);
+    aux::register(state, g, "gcinfo", l_gcinfo);
 
     // _G はグローバル環境テーブル自身。
     aux::set_field(state, g, "_G", Value::GcRef(state.global.globals));
@@ -842,4 +843,11 @@ fn l_collectgarbage(state: &mut LuaState) -> LuaResult<i32> {
         _ => Value::Number(0.0),
     };
     aux::ret(state, vec![result])
+}
+
+/// `gcinfo()` — 非推奨（Lua 5.1）。使用中メモリ(KB)を返す。
+/// メモリ会計が未実装のため生存オブジェクト数を近似値として返す（collectgarbage("count") と同じ）。
+fn l_gcinfo(state: &mut LuaState) -> LuaResult<i32> {
+    let kb = state.global.heap.live_object_count() as f64;
+    aux::ret(state, vec![Value::Number(kb)])
 }
