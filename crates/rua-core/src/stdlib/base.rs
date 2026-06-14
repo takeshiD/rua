@@ -5,11 +5,14 @@
 //! グローバル `_G`/`_VERSION` を登録する。
 
 use std::io::Write;
+use std::rc::Rc;
 
+use crate::compiler::compile;
 use crate::error::{LuaError, LuaResult};
 use crate::gc::{GcHandle, TableKey};
 use crate::state::LuaState;
 use crate::value::Value;
+use crate::value::closure::{Closure, LuaClosure};
 use crate::value::convert::str_to_number;
 
 use super::aux;
@@ -39,6 +42,10 @@ pub fn open(state: &mut LuaState) {
     aux::register(state, g, "setmetatable", l_setmetatable);
     aux::register(state, g, "getmetatable", l_getmetatable);
     aux::register(state, g, "unpack", l_unpack);
+    aux::register(state, g, "loadstring", l_loadstring);
+    aux::register(state, g, "load", l_load);
+    aux::register(state, g, "loadfile", l_loadfile);
+    aux::register(state, g, "dofile", l_dofile);
 
     // _G はグローバル環境テーブル自身。
     aux::set_field(state, g, "_G", Value::GcRef(state.global.globals));
@@ -499,4 +506,136 @@ fn l_unpack(state: &mut LuaState) -> LuaResult<i32> {
         idx += 1;
     }
     aux::ret(state, out)
+}
+
+// ============================================================================
+// loadstring / load / loadfile / dofile（本家 lbaselib.c の load 系）
+// ============================================================================
+
+/// ソースをコンパイルしてメインチャンクの関数値を作る。
+/// 成功で関数値、失敗で構文エラーメッセージ（文字列）を返す。
+fn compile_to_function(state: &mut LuaState, src: &[u8], chunkname: &str) -> Result<Value, String> {
+    match compile(&mut state.global.heap, src, chunkname) {
+        Ok(proto) => {
+            let closure = LuaClosure::new(Rc::new(proto));
+            let h = state.global.heap.alloc_closure(Closure::Lua(closure));
+            Ok(Value::GcRef(h))
+        }
+        Err(e) => Err(format!("{e}")),
+    }
+}
+
+/// コンパイル結果を `function` または `nil, errmsg` として返す（load 系の共通処理）。
+fn ret_loaded(state: &mut LuaState, compiled: Result<Value, String>) -> LuaResult<i32> {
+    match compiled {
+        Ok(f) => aux::ret(state, vec![f]),
+        Err(e) => {
+            let msg = state.new_string(e.as_bytes());
+            aux::ret(state, vec![Value::Nil, msg])
+        }
+    }
+}
+
+/// `loadstring(s [, chunkname])` — 文字列をコンパイルして関数を返す（失敗で nil, errmsg）。
+fn l_loadstring(state: &mut LuaState) -> LuaResult<i32> {
+    let args = aux::args_vec(state);
+    let src = aux::check_str_bytes(state, &args, 0, "loadstring")?;
+    // chunkname 省略時は本家同様ソース文字列自体（compile 側で `[string "..."]` に短縮）。
+    let chunkname = match aux::opt_value(&args, 1) {
+        Value::Nil => String::from_utf8_lossy(&src).into_owned(),
+        _ => String::from_utf8_lossy(&aux::check_str_bytes(state, &args, 1, "loadstring")?)
+            .into_owned(),
+    };
+    let compiled = compile_to_function(state, &src, &chunkname);
+    ret_loaded(state, compiled)
+}
+
+/// `load(func [, chunkname])` — reader 関数を繰り返し呼んでチャンクを組み立て、コンパイルする。
+fn l_load(state: &mut LuaState) -> LuaResult<i32> {
+    let args = aux::args_vec(state);
+    let func = aux::opt_value(&args, 0);
+    let chunkname = match aux::opt_value(&args, 1) {
+        Value::Nil => "=(load)".to_string(),
+        _ => String::from_utf8_lossy(&aux::check_str_bytes(state, &args, 1, "load")?).into_owned(),
+    };
+    let mut src: Vec<u8> = Vec::new();
+    loop {
+        let piece = crate::vm::call(state, func, &[])?;
+        match piece.into_iter().next() {
+            Some(Value::GcRef(GcHandle::Str(k))) => {
+                let bytes = state
+                    .global
+                    .heap
+                    .get_str(k)
+                    .map(|s| s.as_bytes().to_vec())
+                    .unwrap_or_default();
+                if bytes.is_empty() {
+                    break; // 空文字列で終端（本家準拠）。
+                }
+                src.extend_from_slice(&bytes);
+            }
+            // nil / 値なし / その他 → 終端。
+            _ => break,
+        }
+    }
+    let compiled = compile_to_function(state, &src, &chunkname);
+    ret_loaded(state, compiled)
+}
+
+/// ファイル（省略時は stdin）を読み、先頭の `#` 行（shebang）は読み飛ばす。
+fn read_file_source(state: &mut LuaState, args: &[Value]) -> Result<(Vec<u8>, String), String> {
+    let (mut src, name) = match aux::opt_value(args, 0) {
+        Value::Nil => {
+            use std::io::Read;
+            let mut buf = Vec::new();
+            std::io::stdin()
+                .read_to_end(&mut buf)
+                .map_err(|e| format!("cannot read stdin: {e}"))?;
+            (buf, "=stdin".to_string())
+        }
+        Value::GcRef(GcHandle::Str(k)) => {
+            let path = state
+                .global
+                .heap
+                .get_str(k)
+                .map(|s| String::from_utf8_lossy(s.as_bytes()).into_owned())
+                .unwrap_or_default();
+            let bytes = std::fs::read(&path).map_err(|e| format!("cannot open {path}: {e}"))?;
+            (bytes, format!("@{path}"))
+        }
+        _ => return Err("bad argument (string expected)".to_string()),
+    };
+    // shebang（先頭が '#'）の行を読み飛ばす。行番号維持のため改行は残す。
+    if src.first() == Some(&b'#') {
+        if let Some(pos) = src.iter().position(|&b| b == b'\n') {
+            src.drain(..pos);
+        } else {
+            src.clear();
+        }
+    }
+    Ok((src, name))
+}
+
+/// `loadfile([filename])` — ファイル/stdin をコンパイルして関数を返す（失敗で nil, errmsg）。
+fn l_loadfile(state: &mut LuaState) -> LuaResult<i32> {
+    let args = aux::args_vec(state);
+    match read_file_source(state, &args) {
+        Ok((src, name)) => {
+            let compiled = compile_to_function(state, &src, &name);
+            ret_loaded(state, compiled)
+        }
+        Err(e) => {
+            let msg = state.new_string(e.as_bytes());
+            aux::ret(state, vec![Value::Nil, msg])
+        }
+    }
+}
+
+/// `dofile([filename])` — ファイル/stdin をロードして即実行する。エラーは送出（pcall 可能）。
+fn l_dofile(state: &mut LuaState) -> LuaResult<i32> {
+    let args = aux::args_vec(state);
+    let (src, name) = read_file_source(state, &args).map_err(|e| aux::rt_error(state, e))?;
+    let f = compile_to_function(state, &src, &name).map_err(|e| aux::rt_error(state, e))?;
+    let rets = crate::vm::call(state, f, &[])?;
+    aux::ret(state, rets)
 }
