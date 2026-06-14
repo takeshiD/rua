@@ -11,8 +11,8 @@
 use crate::error::LuaResult;
 use crate::gc::{GcHandle, TableKey};
 use crate::state::LuaState;
-use crate::value::closure::Closure;
 use crate::value::Value;
+use crate::value::closure::Closure;
 
 use super::aux;
 
@@ -112,25 +112,20 @@ fn l_traceback(state: &mut LuaState) -> LuaResult<i32> {
 // ============================================================================
 
 /// Lua クロージャの情報をテーブルへ埋める。
-fn fill_lua_closure_info(
-    state: &mut LuaState,
-    tk: TableKey,
-    closure_key: crate::gc::ClosureKey,
-) {
+fn fill_lua_closure_info(state: &mut LuaState, tk: TableKey, closure_key: crate::gc::ClosureKey) {
     let (source, short_src, line_defined, last_line_defined, nups) =
         match state.global.heap.get_closure(closure_key) {
             Some(Closure::Lua(lc)) => {
                 let proto = lc.proto().clone();
                 let src = proto.source.clone().unwrap_or_else(|| "=?".to_string());
-                let short_src = if src.starts_with('@') {
-                    src[1..].to_string()
-                } else if src.starts_with('=') {
-                    src[1..].to_string()
-                } else {
-                    // チャンク文字列の短縮表示（先頭60文字）。
-                    let truncated: String = src.chars().take(60).collect();
-                    format!("[string \"{}\"]", truncated.replace('\n', " "))
-                };
+                let short_src =
+                    if let Some(rest) = src.strip_prefix('@').or_else(|| src.strip_prefix('=')) {
+                        rest.to_string()
+                    } else {
+                        // チャンク文字列の短縮表示（先頭60文字）。
+                        let truncated: String = src.chars().take(60).collect();
+                        format!("[string \"{}\"]", truncated.replace('\n', " "))
+                    };
                 (
                     src,
                     short_src,
@@ -139,13 +134,7 @@ fn fill_lua_closure_info(
                     lc.upvalues().len(),
                 )
             }
-            Some(Closure::Native(_)) => (
-                "=[C]".to_string(),
-                "[C]".to_string(),
-                0u32,
-                0u32,
-                0usize,
-            ),
+            Some(Closure::Native(_)) => ("=[C]".to_string(), "[C]".to_string(), 0u32, 0u32, 0usize),
             None => return,
         };
 
@@ -155,12 +144,7 @@ fn fill_lua_closure_info(
     let short_val = state.new_string(short_src.as_bytes());
     aux::set_field(state, tk, "short_src", short_val);
 
-    aux::set_field(
-        state,
-        tk,
-        "linedefined",
-        Value::Number(line_defined as f64),
-    );
+    aux::set_field(state, tk, "linedefined", Value::Number(line_defined as f64));
     aux::set_field(
         state,
         tk,
@@ -218,8 +202,10 @@ fn l_getinfo(state: &mut LuaState) -> LuaResult<i32> {
                 let ci = &state.call_info[frames - 2];
                 let current_line = ci.current_line;
                 let source = ci.source.clone();
-                let closure_key = if let Some(Value::GcRef(GcHandle::Closure(k))) =
-                    state.stack.get(state.call_info[frames - 2].func).copied()
+                let closure_key = if let Some(Value::GcRef(GcHandle::Closure(k))) = state
+                    .stack
+                    .get(state.call_info[frames - 2].func)
+                    .copied()
                     .map(Some)
                     .unwrap_or(None)
                 {
@@ -228,20 +214,11 @@ fn l_getinfo(state: &mut LuaState) -> LuaResult<i32> {
                     None
                 };
 
-                aux::set_field(
-                    state,
-                    tk,
-                    "currentline",
-                    Value::Number(current_line as f64),
-                );
+                aux::set_field(state, tk, "currentline", Value::Number(current_line as f64));
                 if let Some(src) = source {
                     let src_v = state.new_string(src.as_bytes());
                     aux::set_field(state, tk, "source", src_v);
-                    let short = if src.starts_with('@') {
-                        src[1..].to_string()
-                    } else {
-                        src.clone()
-                    };
+                    let short = src.strip_prefix('@').unwrap_or(src.as_str()).to_string();
                     let short_v = state.new_string(short.as_bytes());
                     aux::set_field(state, tk, "short_src", short_v);
                 }
@@ -265,20 +242,11 @@ fn l_getinfo(state: &mut LuaState) -> LuaResult<i32> {
                 let source = ci.source.clone();
                 let func_stack_pos = ci.func;
 
-                aux::set_field(
-                    state,
-                    tk,
-                    "currentline",
-                    Value::Number(current_line as f64),
-                );
+                aux::set_field(state, tk, "currentline", Value::Number(current_line as f64));
                 if let Some(src) = source {
                     let src_v = state.new_string(src.as_bytes());
                     aux::set_field(state, tk, "source", src_v);
-                    let short = if src.starts_with('@') {
-                        src[1..].to_string()
-                    } else {
-                        src.clone()
-                    };
+                    let short = src.strip_prefix('@').unwrap_or(src.as_str()).to_string();
                     let short_v = state.new_string(short.as_bytes());
                     aux::set_field(state, tk, "short_src", short_v);
                 }
@@ -320,11 +288,9 @@ fn l_getmetatable(state: &mut LuaState) -> LuaResult<i32> {
     let v = aux::opt_value(&args, 0);
     // aux::metatable_handle は __metatable を考慮しないので直接取得する。
     let mt = match v {
-        Value::GcRef(GcHandle::Table(k)) => state
-            .global
-            .heap
-            .get_table(k)
-            .and_then(|t| t.metatable()),
+        Value::GcRef(GcHandle::Table(k)) => {
+            state.global.heap.get_table(k).and_then(|t| t.metatable())
+        }
         Value::GcRef(GcHandle::Userdata(k)) => state
             .global
             .heap
