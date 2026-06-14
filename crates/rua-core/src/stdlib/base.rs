@@ -652,17 +652,6 @@ fn l_dofile(state: &mut LuaState) -> LuaResult<i32> {
 }
 
 // ============================================================================
-// collectgarbage（本家 lbaselib.c `luaB_collectgarbage`）
-// ============================================================================
-
-/// `collectgarbage([opt [, arg]])` — GC 制御。
-///
-/// 現状の rua は実行中に GC を起動していない（ルート集合の収集が未配線, #17）。
-/// 不完全なルートで `Heap::collect` を呼ぶと生存オブジェクトを誤回収して壊れるため、
-/// `collect`/`step` は **安全な no-op**（実回収しない）とし、各オプションは本家準拠の
-/// 形（型・既定値）で値を返す。`count` はメモリ会計未実装のため生存オブジェクト数を
-/// KB の近似として返す（Lua 5.1 は単一の数値を返す）。
-// ============================================================================
 // setfenv / getfenv（Lua 5.1 function environment）
 // ============================================================================
 
@@ -678,7 +667,12 @@ fn l_setfenv(state: &mut LuaState) -> LuaResult<i32> {
     let new_env_handle = match aux::opt_value(&args, 1) {
         Value::GcRef(h @ GcHandle::Table(_)) => h,
         other => {
-            return Err(aux::arg_error(state, 2, "setfenv", &format!("table expected, got {}", aux::type_name(other))));
+            return Err(aux::arg_error(
+                state,
+                2,
+                "setfenv",
+                &format!("table expected, got {}", aux::type_name(other)),
+            ));
         }
     };
 
@@ -711,9 +705,12 @@ fn l_setfenv(state: &mut LuaState) -> LuaResult<i32> {
             let f = aux::opt_value(&args, 0);
             aux::ret(state, vec![f])
         }
-        other => {
-            Err(aux::arg_error(state, 1, "setfenv", &format!("number or function expected, got {}", aux::type_name(other))))
-        }
+        other => Err(aux::arg_error(
+            state,
+            1,
+            "setfenv",
+            &format!("number or function expected, got {}", aux::type_name(other)),
+        )),
     }
 }
 
@@ -752,6 +749,17 @@ fn l_getfenv(state: &mut LuaState) -> LuaResult<i32> {
     }
 }
 
+// ============================================================================
+// collectgarbage（本家 lbaselib.c `luaB_collectgarbage`）
+// ============================================================================
+
+/// `collectgarbage([opt [, arg]])` — GC 制御。
+///
+/// 現状の rua は実行中に GC を起動していない（ルート集合の収集が未配線, #17）。
+/// 不完全なルートで `Heap::collect` を呼ぶと生存オブジェクトを誤回収して壊れるため、
+/// `collect`/`step` は **安全な no-op**（実回収しない）とし、各オプションは本家準拠の
+/// 形（型・既定値）で値を返す。`count` はメモリ会計未実装のため生存オブジェクト数を
+/// KB の近似として返す（Lua 5.1 は単一の数値を返す）。
 fn l_collectgarbage(state: &mut LuaState) -> LuaResult<i32> {
     let args = aux::args_vec(state);
     let opt = match aux::opt_value(&args, 0) {

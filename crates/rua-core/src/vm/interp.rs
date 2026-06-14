@@ -419,7 +419,9 @@ fn execute_inner(
                 OpCode::GetGlobal => {
                     let key = proto.constants[instr.bx() as usize];
                     // setfenv による env 変更を反映するため CallInfo から都度読む。
-                    let cur_env = state.call_info.get(my_ci_index)
+                    let cur_env = state
+                        .call_info
+                        .get(my_ci_index)
                         .and_then(|ci| ci.env)
                         .unwrap_or(env);
                     let g = Value::GcRef(cur_env);
@@ -430,7 +432,9 @@ fn execute_inner(
                     let key = proto.constants[instr.bx() as usize];
                     let v = reg(state, base, a);
                     // setfenv による env 変更を反映するため CallInfo から都度読む。
-                    let cur_env = state.call_info.get(my_ci_index)
+                    let cur_env = state
+                        .call_info
+                        .get(my_ci_index)
                         .and_then(|ci| ci.env)
                         .unwrap_or(env);
                     let g = Value::GcRef(cur_env);
@@ -752,7 +756,9 @@ fn execute_inner(
                     let nup = child.num_upvalues as usize;
                     // 子クロージャは親の env を継承する（Lua 5.1 の規則）。
                     // setfenv 後の env を反映するため CallInfo から読む。
-                    let child_env = state.call_info.get(my_ci_index)
+                    let child_env = state
+                        .call_info
+                        .get(my_ci_index)
                         .and_then(|ci| ci.env)
                         .unwrap_or(env);
                     let mut newc = LuaClosure::new_with_env(child, child_env);
@@ -1034,18 +1040,12 @@ fn values_equal(state: &mut LuaState, a: Value, b: Value) -> LuaResult<bool> {
     let mm_b = get_metamethod(state, b, b"__eq");
     // Lua 5.1: 両者の __eq が同じ関数であるときのみ呼ぶ。
     // 片方のみが __eq を持つ場合は false（raw 比較）。
-    let mm = if !matches!(mm_a, Value::Nil) && mm_a == mm_b {
-        mm_a
-    } else if !matches!(mm_a, Value::Nil) && matches!(mm_b, Value::Nil) {
-        // 片方のみ: Lua 5.1 は __eq を呼ばない。
+    // Lua 5.1: 両者が同一の `__eq` を持つときのみ呼ぶ。
+    // 片方のみ、または異なる `__eq` の場合は呼ばず raw 比較（false）。
+    if matches!(mm_a, Value::Nil) || mm_a != mm_b {
         return Ok(false);
-    } else if matches!(mm_a, Value::Nil) && !matches!(mm_b, Value::Nil) {
-        // 片方のみ: Lua 5.1 は __eq を呼ばない。
-        return Ok(false);
-    } else {
-        return Ok(false);
-    };
-    Ok(first(call(state, mm, &[a, b])?).is_truthy())
+    }
+    Ok(first(call(state, mm_a, &[a, b])?).is_truthy())
 }
 
 /// 比較メタメソッドを取得する。Lua 5.1 の規則:
